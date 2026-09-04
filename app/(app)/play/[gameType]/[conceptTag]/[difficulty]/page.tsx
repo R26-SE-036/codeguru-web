@@ -1,6 +1,9 @@
+import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/server-api';
 import { GamePlayer } from './game-player';
+
+export const metadata: Metadata = { title: 'Practice' };
 
 /**
  * /play/<gameType>/<conceptTag>/<difficulty>

@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowRight, Clock3, Gamepad2, Sparkles, TriangleAlert, Users } from 'lucide-react';
 
@@ -5,6 +6,8 @@ import { getSession, serverFetch } from '@/lib/server-api';
 import { SECTIONS } from '@/lib/nav';
 import { componentTone, formatComponent } from '@/lib/vocabulary';
 import { Card, EmptyState, SectionTitle, Stat, Unavailable } from '@/components/ui';
+
+export const metadata: Metadata = { title: 'Overview' };
 
 interface Overview {
   counts?: {

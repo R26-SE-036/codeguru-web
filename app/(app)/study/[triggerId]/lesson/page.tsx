@@ -1,4 +1,7 @@
+import type { Metadata } from 'next';
 import { LessonView } from './lesson-view';
+
+export const metadata: Metadata = { title: 'Lesson' };
 
 export default async function LessonPage({
   params,

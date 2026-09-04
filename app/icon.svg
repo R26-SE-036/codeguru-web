@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!--
+    The browser-tab icon. Same chevron-and-spark as components/brand.tsx, on
+    the same violet-to-sky gradient.
+
+    A file rather than a next/og ImageResponse: generating it failed to
+    prerender at build time ("TypeError: Invalid URL"), and a favicon has no
+    business costing a render anyway.
+
+    It carries its own background on purpose. A favicon is composited against
+    the browser's tab strip, not against the page, so a transparent glyph
+    disappears into a dark one. The gradient reads on both, which is also why
+    this is the one mark in the app that does not follow the theme.
+  -->
+  <defs>
+    <linearGradient id="cg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8B5CF6"/>
+      <stop offset="55%" stop-color="#6366F1"/>
+      <stop offset="100%" stop-color="#0EA5E9"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="8" fill="url(#cg)"/>
+  <g transform="translate(4 4) scale(1)">
+    <path d="M9.5 7.5 5.5 12l4 4.5" fill="none" stroke="#fff" stroke-width="2.4"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="m15.4 6.6.9 2.3 2.3.9-2.3.9-.9 2.3-.9-2.3-2.3-.9 2.3-.9z" fill="#fff"/>
+  </g>
+</svg>
