@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { INLINE_THEME_SCRIPT } from '@/lib/theme-preference';
+import { RouteProgress } from '@/components/route-progress';
 
 export const metadata: Metadata = {
   title: {
@@ -37,7 +38,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         */}
         <script dangerouslySetInnerHTML={{ __html: INLINE_THEME_SCRIPT }} />
       </head>
-      <body className="min-h-screen bg-page bg-cg-wash bg-fixed">{children}</body>
+      <body className="min-h-screen bg-page bg-cg-wash bg-fixed">
+        {/* In the root layout so it also covers login <-> register, and so a
+            navigation that replaces the whole app shell does not unmount the
+            thing reporting it. It uses usePathname only - useSearchParams
+            would force every route out of static rendering. */}
+        <RouteProgress />
+        {children}
+      </body>
     </html>
   );
 }
