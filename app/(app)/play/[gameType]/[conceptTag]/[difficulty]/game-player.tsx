@@ -224,6 +224,10 @@ export function GamePlayer({
             game_type: activeGameType,
             difficulty_level: activeDifficulty,
             score_percent: submitted.score,
+            // Required by the contract. Dropping it makes Code Coach answer
+            // 422, and because this call is best-effort the failure is only a
+            // console warning - so mastery silently never updates from games.
+            error_count: submitted.score > 0 ? 0 : 1,
             attempt_count: state.attemptCount,
             hint_usage: state.hintLevel,
             time_taken_seconds: state.seconds,

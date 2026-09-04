@@ -174,7 +174,9 @@ export async function logout(accessToken: string): Promise<void> {
  * answers 503, not 401, when it cannot verify with Code Coach, precisely so a
  * client does not respond to an outage by sending the student to re-authenticate.
  */
-export async function exchangeForPairPath(accessToken: string): Promise<string | null> {
+export async function exchangeForPairPath(
+  accessToken: string,
+): Promise<{ token: string; userId: string } | null> {
   try {
     const response = await fetch(`${baseUrl('pair')}/auth/exchange`, {
       method: 'POST',
@@ -182,7 +184,11 @@ export async function exchangeForPairPath(accessToken: string): Promise<string |
         'Content-Type': 'application/json',
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({ access_token: accessToken }),
+      // `codeCoachAccessToken`, exactly. The controller reads a single named
+      // property - @Body('codeCoachAccessToken') - so any other key arrives as
+      // undefined and the request fails with a 400 rather than an auth error,
+      // which is a confusing way to learn you guessed the field name.
+      body: JSON.stringify({ codeCoachAccessToken: accessToken }),
       cache: 'no-store',
     });
 
@@ -191,8 +197,20 @@ export async function exchangeForPairPath(accessToken: string): Promise<string |
       return null;
     }
 
+    // camelCase, and `user.id` is PairPath's OWN id, not the Code Coach one.
+    // Every foreign key in that schema points at this local users.id, which is
+    // the whole reason the exchange exists - so this is the id to compare
+    // against anything PairPath sends back.
     const body = await response.json();
-    return body?.access_token ?? body?.token ?? null;
+    const token = body?.accessToken;
+    const userId = body?.user?.id;
+
+    if (!token || !userId) {
+      console.warn('PairPath token exchange returned an unexpected body shape.');
+      return null;
+    }
+
+    return { token, userId };
   } catch (error) {
     console.warn('PairPath token exchange failed:', error);
     return null;

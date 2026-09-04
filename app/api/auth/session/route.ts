@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     user: session.user,
     // Whether the pairing features work this session. The UI needs to know so
     // it can explain, rather than offering a route that answers 503.
-    pairPathConnected: Boolean(session.pairPathToken),
+    pairPathConnected: Boolean(session.pairPathToken && session.pairPathUserId),
   });
 }
 

@@ -32,7 +32,9 @@ export async function POST(request: NextRequest) {
     // Fails soft. A student who cannot reach PairPath should still get into
     // Study Guider and the games; the pairing routes report the missing token
     // themselves rather than blocking sign-in for everything else.
-    session.pairPathToken = (await exchangeForPairPath(session.accessToken)) ?? undefined;
+    const pairPath = await exchangeForPairPath(session.accessToken);
+    session.pairPathToken = pairPath?.token;
+    session.pairPathUserId = pairPath?.userId;
 
     const response = NextResponse.json({ user: session.user });
     response.cookies.set(SESSION_COOKIE, await sealSession(session), cookieOptions());

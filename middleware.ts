@@ -73,10 +73,11 @@ export async function middleware(request: NextRequest) {
   try {
     const refreshed = await refresh(session.refreshToken);
 
-    // Carry the PairPath token across. It has its own lifetime and is not
+    // Carry the PairPath identity across. It has its own lifetime and is not
     // reissued by a Code Coach refresh; dropping it here would silently sign
     // the student out of the pairing features only.
     refreshed.pairPathToken = session.pairPathToken;
+    refreshed.pairPathUserId = session.pairPathUserId;
 
     const response = NextResponse.next();
     response.cookies.set(SESSION_COOKIE, await sealSession(refreshed), cookieOptions());

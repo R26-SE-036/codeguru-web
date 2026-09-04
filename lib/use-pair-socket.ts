@@ -82,17 +82,27 @@ export function usePairSocket(sessionId: string | null, options: Options = {}) {
 
       if (!live) return;
 
-      // Same-origin. `path` is where the load balancer forwards to PairPath;
-      // there is no host here on purpose, so this works identically in
-      // development and deployed.
-      socket = io({
-        path: '/pair-ws/socket.io',
-        auth: { token },
-        // Websocket only. The polling fallback needs sticky sessions to work
-        // behind a load balancer, and a silent downgrade to polling makes
-        // real-time collaboration feel broken rather than fail loudly.
-        transports: ['websocket'],
-      });
+      // Deployed: same-origin, and the load balancer forwards /pair-ws/* to
+      // PairPath. No host here on purpose.
+      //
+      // Locally there is no load balancer, so nothing serves that path -
+      // http://localhost:4200/pair-ws/socket.io answers 308, not a socket, and
+      // the workspace connects to nothing. NEXT_PUBLIC_PAIR_WS_URL points
+      // straight at PairPath for development.
+      //
+      // This is the one NEXT_PUBLIC_* value in the app, and the exception is
+      // narrow: a WebSocket cannot be proxied through a route handler, so the
+      // browser has to know this origin. It is a host, not a secret. Setting it
+      // in a deployed environment would bypass the load balancer and reintroduce
+      // a cross-origin request, so leave it unset there.
+      const devOrigin = process.env.NEXT_PUBLIC_PAIR_WS_URL;
+
+      // Websocket only, both ways. The polling fallback needs sticky sessions
+      // behind a load balancer, and a silent downgrade to polling makes
+      // real-time collaboration feel broken rather than fail loudly.
+      socket = devOrigin
+        ? io(devOrigin, { auth: { token }, transports: ['websocket'] })
+        : io({ path: '/pair-ws/socket.io', auth: { token }, transports: ['websocket'] });
 
       socketRef.current = socket;
 

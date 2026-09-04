@@ -25,7 +25,9 @@ export async function POST(request: NextRequest) {
 
   try {
     const session = await register(fullName, email, password);
-    session.pairPathToken = (await exchangeForPairPath(session.accessToken)) ?? undefined;
+    const pairPath = await exchangeForPairPath(session.accessToken);
+    session.pairPathToken = pairPath?.token;
+    session.pairPathUserId = pairPath?.userId;
 
     const response = NextResponse.json({ user: session.user });
     response.cookies.set(SESSION_COOKIE, await sealSession(session), cookieOptions());

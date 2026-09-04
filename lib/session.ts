@@ -46,6 +46,16 @@ export interface Session {
    * attach the right token per service.
    */
   pairPathToken?: string;
+  /**
+   * PairPath's OWN user id for this student, from the token exchange.
+   *
+   * Not the same value as user.user_id. Every foreign key in PairPath's schema
+   * points at its local users.id, and everything it sends back - session
+   * members, chat authors - is keyed on that. Comparing a Code Coach id
+   * against it never matches, which silently renders your own chat messages as
+   * your partner's.
+   */
+  pairPathUserId?: string;
   user: PlatformUser;
 }
 
