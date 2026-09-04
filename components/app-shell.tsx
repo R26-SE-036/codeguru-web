@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LogOut, Menu, X } from 'lucide-react';
@@ -36,16 +36,66 @@ export function AppShell({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const current = activeSection(pathname);
 
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const openerRef = useRef<HTMLButtonElement>(null);
+
   // Close on navigation. Without this the drawer stays open over the page the
   // student just asked for, which reads as the tap not having worked.
   useEffect(() => setDrawerOpen(false), [pathname]);
 
-  // Escape closes, and the page behind must not scroll while it is open.
+  /*
+   * While the drawer is open: Escape closes it, the page behind does not
+   * scroll, and Tab cannot leave.
+   *
+   * The focus trap is the part that was missing. Without it, tabbing out of
+   * the last link moves focus to the page BEHIND the overlay - invisible,
+   * unreachable by pointer, and impossible to get back from without a mouse.
+   * Anyone navigating by keyboard was effectively locked out of the app the
+   * moment they opened the menu.
+   */
   useEffect(() => {
-    if (!drawerOpen) return;
+    if (!drawerOpen) {
+      // Focus goes back to the button that opened it, so a keyboard user does
+      // not land at the top of the document after closing.
+      openerRef.current?.focus();
+      return;
+    }
+
+    const drawer = drawerRef.current;
+    const focusable = () =>
+      Array.from(
+        drawer?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      );
+
+    focusable()[0]?.focus();
 
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setDrawerOpen(false);
+      if (event.key === 'Escape') {
+        setDrawerOpen(false);
+        return;
+      }
+
+      if (event.key !== 'Tab') return;
+
+      const items = focusable();
+      if (items.length === 0) return;
+
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+
+      // Wrap at both ends. Focus can also start outside the drawer entirely -
+      // after a click, it is on the button behind the overlay - so anything
+      // not inside it is pulled back in rather than left where it is.
+      if (event.shiftKey && (active === first || !drawer?.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !drawer?.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
     };
 
     const previous = document.body.style.overflow;
@@ -67,6 +117,19 @@ export function AppShell({
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[264px_1fr]">
+      {/*
+        Skip link. Visually hidden until focused, which makes it the first stop
+        on Tab for a keyboard or screen-reader user and invisible to everyone
+        else. Without it, reaching the page content means tabbing through the
+        whole sidebar on every single navigation.
+      */}
+      <a
+        href="#main"
+        className="sr-only left-4 top-4 z-[60] rounded-cg-sm bg-cg-accent px-4 py-2 font-semibold text-on-accent shadow-cg-accent focus:not-sr-only focus:fixed"
+      >
+        Skip to content
+      </a>
+
       {/* ── Desktop rail ─────────────────────────────────────────────────── */}
       <aside className="sticky top-0 hidden h-screen flex-col border-r border-line bg-card/70 px-4 py-5 backdrop-blur-xl lg:flex">
         <Brand className="px-2" />
@@ -108,6 +171,7 @@ export function AppShell({
       <div className="flex min-w-0 flex-col">
         <header className="cg-glass sticky top-0 z-40 flex items-center gap-3 border-b px-4 py-3 lg:hidden">
           <button
+            ref={openerRef}
             type="button"
             onClick={() => setDrawerOpen(true)}
             aria-label="Open menu"
@@ -126,7 +190,14 @@ export function AppShell({
           <ThemeToggle className="ml-auto" />
         </header>
 
-        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-10">
+        {/* tabIndex -1 so the skip link can move focus here; without it the
+            anchor scrolls the page but leaves focus in the sidebar, and the
+            next Tab carries on through the nav as if nothing happened. */}
+        <main
+          id="main"
+          tabIndex={-1}
+          className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 outline-none sm:px-6 lg:px-8 lg:py-10"
+        >
           {children}
         </main>
       </div>
@@ -141,7 +212,13 @@ export function AppShell({
             className="absolute inset-0 h-full w-full cursor-default bg-ink/50 backdrop-blur-sm animate-cg-fade"
           />
 
-          <div className="absolute inset-y-0 left-0 flex w-[min(19rem,85vw)] flex-col border-r border-line bg-card px-4 py-5 shadow-cg-lg animate-cg-rise">
+          <div
+            ref={drawerRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Menu"
+            className="absolute inset-y-0 left-0 flex w-[min(19rem,85vw)] flex-col border-r border-line bg-card px-4 py-5 shadow-cg-lg animate-cg-rise"
+          >
             <div className="flex items-center justify-between">
               <Brand />
               <button

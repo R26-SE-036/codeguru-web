@@ -385,6 +385,11 @@ function ConnectionBadge({
 
   return (
     <span
+      // Losing the live connection mid-session changes what the workspace can
+      // do - the Run and Switch roles buttons disable themselves - and the
+      // only signal was a colour change on a dot.
+      role="status"
+      aria-live="polite"
       className={`inline-flex items-center gap-1.5 rounded-cg-sm px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${tone}`}
       title={message ?? undefined}
     >

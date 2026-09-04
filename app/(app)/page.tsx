@@ -6,6 +6,7 @@ import { getSession, serverFetch } from '@/lib/server-api';
 import { SECTIONS } from '@/lib/nav';
 import { componentTone, formatComponent } from '@/lib/vocabulary';
 import { Card, EmptyState, SectionTitle, Stat, Unavailable } from '@/components/ui';
+import { GettingStarted } from '@/components/getting-started';
 
 export const metadata: Metadata = { title: 'Overview' };
 
@@ -37,6 +38,32 @@ export default async function HomePage() {
   const firstName = session?.user.full_name?.trim().split(/\s+/)[0] ?? 'there';
   const counts = overview?.counts;
   const waiting = counts?.active_remediation_triggers ?? 0;
+
+  /*
+   * A brand-new account, as distinct from a quiet one.
+   *
+   * Only true when the summary ARRIVED and everything in it is empty -
+   * `overview === null` means we could not find out, which is a different
+   * claim and must not be mistaken for "you have not started". Every counter
+   * is checked rather than one: a student who has only played a game has
+   * started, and telling them to install the extension would be wrong.
+   */
+  const isNewAccount =
+    overview !== null &&
+    (counts?.active_diagnostics ?? 0) === 0 &&
+    waiting === 0 &&
+    (counts?.total_game_sessions ?? 0) === 0 &&
+    (counts?.total_pair_sessions ?? 0) === 0 &&
+    (overview.recent_timeline?.length ?? 0) === 0;
+
+  if (isNewAccount) {
+    return (
+      <div className="space-y-8">
+        <Hero name={firstName} waiting={0} unreachable={false} newAccount />
+        <GettingStarted />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -175,10 +202,12 @@ function Hero({
   name,
   waiting,
   unreachable,
+  newAccount = false,
 }: {
   name: string;
   waiting: number;
   unreachable: boolean;
+  newAccount?: boolean;
 }) {
   return (
     <section className="relative overflow-hidden rounded-cg-xl border border-line bg-card p-6 shadow-cg-sm sm:p-9">
@@ -195,19 +224,25 @@ function Hero({
 
       <div className="relative">
         <p className="text-xs font-semibold uppercase tracking-widest text-accent">
-          {greeting()}
+          {newAccount ? 'Welcome' : greeting()}
         </p>
 
         <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">
-          Hello, <span className="cg-gradient-text">{name}</span>
+          {newAccount ? 'Welcome, ' : 'Hello, '}
+          <span className="cg-gradient-text">{name}</span>
         </h1>
 
         <p className="mt-3 max-w-xl text-body">
-          {unreachable
-            ? 'We could not reach your summary just now, so the numbers below are missing rather than zero.'
-            : waiting > 0
-              ? `You have ${waiting} ${waiting === 1 ? 'lesson' : 'lessons'} waiting, built from the mistakes you have been repeating.`
-              : 'Nothing is waiting for you right now. Write some Java and anything worth working on will show up here.'}
+          {newAccount
+            ? // Deliberately not "you are all caught up". Nothing has happened
+              // yet, and saying so is the difference between a student setting
+              // the platform up and one concluding it does not work.
+              'Nothing has happened on your account yet. Here is how to get the platform watching your code.'
+            : unreachable
+              ? 'We could not reach your summary just now, so the numbers below are missing rather than zero.'
+              : waiting > 0
+                ? `You have ${waiting} ${waiting === 1 ? 'lesson' : 'lessons'} waiting, built from the mistakes you have been repeating.`
+                : 'Nothing is waiting for you right now. Write some Java and anything worth working on will show up here.'}
         </p>
 
         {waiting > 0 && (

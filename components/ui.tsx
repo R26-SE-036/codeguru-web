@@ -65,16 +65,28 @@ export function PageHeader({
 
 /* ── Surfaces ────────────────────────────────────────────────────────────── */
 
+/**
+ * Extends the host element's own props rather than listing its own.
+ *
+ * The narrow version accepted only `className`, `children` and `as`, which
+ * meant a card could not carry a `role`, an `aria-live` or an `id` - so the
+ * one place those were needed (a result that appears without focus moving, and
+ * has to be announced) could not use a Card at all without a type error.
+ */
 export function Card({
   className,
   children,
   as: As = 'div',
-}: {
-  className?: string;
+  ...rest
+}: React.HTMLAttributes<HTMLElement> & {
   children: React.ReactNode;
   as?: 'div' | 'section' | 'article' | 'li';
 }) {
-  return <As className={clsx('cg-card', className)}>{children}</As>;
+  return (
+    <As className={clsx('cg-card', className)} {...rest}>
+      {children}
+    </As>
+  );
 }
 
 export function SectionTitle({

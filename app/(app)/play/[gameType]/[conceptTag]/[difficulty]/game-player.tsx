@@ -456,6 +456,12 @@ export function GamePlayer({
 
       {result && (
         <Card
+          // The round's outcome appears without focus moving, and it is
+          // followed a couple of seconds later by an automatic navigation to
+          // the results page - so a screen-reader user who is not told about
+          // it simply finds themselves somewhere else.
+          role="status"
+          aria-live="polite"
           className={`flex gap-4 border-l-4 p-5 ${
             result.score > 0 ? 'border-l-ok' : 'border-l-warn'
           }`}

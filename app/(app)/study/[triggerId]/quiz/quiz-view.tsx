@@ -415,6 +415,11 @@ export function QuizView({ triggerId }: { triggerId: string }) {
 
       {checked && (
         <Card
+          // Whether the answer was right is the single most important thing on
+          // the screen, and it appears without the focus moving - so it has to
+          // be announced or a screen-reader user never learns the result.
+          role="status"
+          aria-live="polite"
           className={`flex gap-4 border-l-4 p-5 ${
             isCorrect ? 'border-l-ok' : 'border-l-warn'
           }`}
@@ -501,6 +506,11 @@ function StatusLine({
 
   return (
     <p
+      // Announced when it changes. These lines report whether the score was
+      // actually recorded, which decides whether the concept drops off the
+      // student's list - not something to leave visible-only.
+      role="status"
+      aria-live="polite"
       className={`flex items-center gap-2.5 rounded-cg border px-4 py-2.5 text-sm font-medium ${tone}`}
     >
       {status === 'sending' ? (
