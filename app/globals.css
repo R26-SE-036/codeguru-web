@@ -1,0 +1,38 @@
+/*
+ * theme.css first: Tailwind's utilities reference the --cg-rgb-* tokens it
+ * defines, so they have to exist on :root before anything uses them.
+ *
+ * It is a copy of code-coach/portal/src/styles/codeguru-theme.css, which was
+ * the master of three synced copies kept in step by sync-codeguru-shared.sh.
+ * Once the other three frontends are retired this becomes the only copy, and
+ * that script has nothing left to sync.
+ */
+@import './theme.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    /* The theme file's own dark block is empty. Declaring the scheme here
+       stops the browser painting form controls and scrollbars for a dark page
+       behind a light one. */
+    color-scheme: light;
+  }
+
+  body {
+    background: rgb(var(--cg-rgb-page));
+    color: rgb(var(--cg-rgb-body));
+    font-family: var(--cg-font);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Visible focus, on everything, always. Several of the components being
+     ported set outline:none for looks; this puts it back at the base layer so
+     the app stays keyboard-navigable regardless. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--cg-rgb-accent));
+    outline-offset: 2px;
+  }
+}
