@@ -1,18 +1,33 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
+import { Award, Flame, Gamepad2, Play, Sparkles, Target, Trophy } from 'lucide-react';
+
 import { getSession, serverFetch } from '@/lib/server-api';
 import { formatConcept, formatGameType } from '@/lib/vocabulary';
+import {
+  Badge,
+  Card,
+  EmptyState,
+  PageHeader,
+  SectionTitle,
+  Unavailable,
+  buttonClass,
+} from '@/components/ui';
+
+export const metadata: Metadata = { title: 'Practice' };
 
 /**
- * Practice home. Ported from adaptive-gamification-engine Dashboard.jsx.
+ * Practice home.
  *
- * Two things changed in the move, both deliberate.
+ * Two things changed when this was ported from the standalone dashboard, both
+ * deliberate.
  *
  * It fetches on the server. The original made three parallel calls from the
- * browser - two to Code Coach through a Vite proxy, one to its own backend -
- * each with its own axios client, only one of which had refresh-and-retry.
+ * browser - two through a dev proxy, one to its own backend - each with its own
+ * axios client, only one of which had refresh-and-retry.
  *
- * And "Start practice" now asks for `auto` rather than the difficulty Code
- * Coach recommended. See the note on that link below.
+ * And "Start practice" asks for `auto` rather than a recommended difficulty.
+ * See the note on that link below.
  */
 
 interface Recommendation {
@@ -69,122 +84,197 @@ export default async function PlayPage() {
 
   return (
     <div className="space-y-8">
-      <header>
-        <h1 className="text-2xl font-semibold text-ink">Practice</h1>
-        <p className="mt-1 text-body">
-          Games pitched at the mistakes the coach saw you repeat while coding.
-        </p>
-      </header>
+      <PageHeader
+        eyebrow="Practice"
+        title="Short games, tuned to you"
+        lead="Rounds pitched at the mistakes you have been repeating. They get harder as you improve, and easier when you are stuck."
+        icon={Gamepad2}
+        tone="text-hue-play"
+        toneBg="bg-hue-play/10"
+      />
 
-      <section className="flex flex-wrap items-center gap-6 rounded-cg border border-line bg-card p-5">
-        <Metric label="Total XP" value={profile?.totalScore ?? 0} />
-        <Metric label="Day streak" value={profile?.currentStreak ?? 0} />
-        <div>
-          <div className="text-sm text-muted">Badges</div>
-          <div className="mt-1 flex flex-wrap gap-2">
-            {profile?.badges?.length ? (
-              profile.badges.map((badge) => (
-                <span
-                  key={badge}
-                  className="rounded-cg bg-warn/10 px-2.5 py-1 text-sm text-warn"
-                >
-                  {badge}
-                </span>
-              ))
-            ) : (
-              <span className="text-sm italic text-muted">Play a game to earn one</span>
-            )}
+      {/* ── Player card ──────────────────────────────────────────────────── */}
+      <Card className="relative overflow-hidden p-6">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-hue-play/20 blur-3xl"
+        />
+
+        <div className="relative grid gap-6 sm:grid-cols-[auto_auto_1fr] sm:items-center">
+          <Score
+            icon={Trophy}
+            label="Total XP"
+            value={profile?.totalScore ?? 0}
+            tone="text-hue-play"
+            toneBg="bg-hue-play/10"
+          />
+          <Score
+            icon={Flame}
+            label="Day streak"
+            value={profile?.currentStreak ?? 0}
+            tone="text-hue-rose"
+            toneBg="bg-hue-rose/10"
+          />
+
+          <div className="sm:border-l sm:border-line sm:pl-6">
+            <div className="flex items-center gap-1.5 text-sm font-medium text-muted">
+              <Award size={15} strokeWidth={2.2} aria-hidden />
+              Badges
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {profile?.badges?.length ? (
+                profile.badges.map((badge) => (
+                  <Badge key={badge} tone="warn">
+                    {badge}
+                  </Badge>
+                ))
+              ) : (
+                <span className="text-sm text-muted">Play a round to earn your first</span>
+              )}
+            </div>
           </div>
         </div>
-      </section>
+      </Card>
 
-      {recs === null ? (
-        <Notice>
-          Recommendations are unavailable right now. This is a connection problem, not
-          an empty list — nothing about your progress has changed.
-        </Notice>
-      ) : recommendation ? (
-        <section className="rounded-cg border border-line bg-card p-6">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-medium text-ink">{recommendation.title}</h2>
-              <p className="mt-1 text-sm text-muted">
-                {formatConcept(recommendation.concept_tag)}
-                {recommendation.error_type ? ` · ${recommendation.error_type}` : ''}
-              </p>
+      {/* ── Next round ───────────────────────────────────────────────────── */}
+      <section>
+        <SectionTitle>Up next</SectionTitle>
+
+        {recs === null ? (
+          <Unavailable what="Your recommendations" />
+        ) : recommendation ? (
+          <Card className="overflow-hidden">
+            <div className="border-b border-line bg-card-alt px-6 py-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex items-start gap-4">
+                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-cg bg-hue-play/10 text-hue-play">
+                    <Target size={20} strokeWidth={2.1} aria-hidden />
+                  </span>
+                  <div>
+                    <h3 className="text-lg font-bold text-ink">{recommendation.title}</h3>
+                    <p className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-muted">
+                      <span className="font-medium text-body">
+                        {formatConcept(recommendation.concept_tag)}
+                      </span>
+                      {recommendation.error_type && (
+                        <>
+                          <span aria-hidden className="h-1 w-1 rounded-full bg-faint-nontext" />
+                          <span className="font-mono text-xs">
+                            {recommendation.error_type}
+                          </span>
+                        </>
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                {struggle?.struggle_level && (
+                  <Badge tone={struggle.struggle_level === 'high' ? 'danger' : 'warn'}>
+                    {struggle.struggle_level} struggle
+                  </Badge>
+                )}
+              </div>
             </div>
-            {struggle?.struggle_level && (
-              <span className="rounded-cg bg-warn/10 px-3 py-1 text-sm text-warn">
-                {struggle.struggle_level} struggle
-              </span>
-            )}
-          </div>
 
-          <dl className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Metric label="Struggle score" value={struggle?.struggle_score ?? '—'} />
-            <Metric label="Active errors" value={struggle?.active_count ?? 0} />
-            <Metric label="Repeats" value={struggle?.repeat_count ?? 0} />
-            <Metric label="Hint reliance" value={struggle?.hint_dependency_level ?? 'low'} />
-          </dl>
+            <div className="space-y-5 p-6">
+              <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <Metric label="Struggle score" value={struggle?.struggle_score ?? '—'} />
+                <Metric label="Active errors" value={struggle?.active_count ?? 0} />
+                <Metric label="Repeats" value={struggle?.repeat_count ?? 0} />
+                <Metric
+                  label="Hint reliance"
+                  value={struggle?.hint_dependency_level ?? 'low'}
+                />
+              </dl>
 
-          {recommendation.rationale && (
-            <p className="mt-5 rounded-cg bg-accent-soft/40 px-4 py-3 text-sm text-body">
-              {recommendation.rationale}
-            </p>
-          )}
+              {recommendation.rationale && (
+                <p className="rounded-cg border border-accent/20 bg-accent/10 px-4 py-3 text-sm text-body">
+                  {recommendation.rationale}
+                </p>
+              )}
 
-          {recommendation.focus_points && recommendation.focus_points.length > 0 && (
-            <ul className="mt-4 list-inside list-disc space-y-1 text-sm text-body">
-              {recommendation.focus_points.map((point) => (
-                <li key={point}>{point}</li>
-              ))}
-            </ul>
-          )}
+              {recommendation.focus_points && recommendation.focus_points.length > 0 && (
+                <ul className="space-y-2">
+                  {recommendation.focus_points.map((point) => (
+                    <li key={point} className="flex gap-2.5 text-sm text-body">
+                      <Sparkles
+                        size={15}
+                        aria-hidden
+                        className="mt-0.5 shrink-0 text-hue-play"
+                      />
+                      {point}
+                    </li>
+                  ))}
+                </ul>
+              )}
 
-          {/*
-            `auto`, not recommendation.difficulty_level.
+              {/*
+                `auto`, not recommendation.difficulty_level.
 
-            Code Coach recommends a difficulty in its own vocabulary
-            (beginner / intermediate / advanced), which the game route aliases
-            straight to Easy / Medium / Hard. Passing it through means the
-            request resolves without ever consulting the Random Forest - which
-            is a large part of why that model had never run in the product.
+                The recommendation carries a difficulty in a different
+                vocabulary (beginner / intermediate / advanced), which the game
+                route aliases straight to Easy / Medium / Hard. Passing it
+                through means the request resolves without ever consulting the
+                adaptive model - which is a large part of why that model had
+                never actually run in the product.
 
-            `auto` hands the choice to the engine whose job it is, using this
-            student's own history on this concept plus their unresolved
-            struggle count. What Code Coach suggested is still shown above; it
-            is a signal, not the decision.
-          */}
-          <Link
-            href={`/play/${recommendation.game_type}/${recommendation.concept_tag}/auto?rec=${encodeURIComponent(recommendation.recommendation_id)}`}
-            className="mt-6 inline-flex rounded-cg bg-accent px-5 py-2.5 font-medium text-white transition hover:bg-accent-strong"
-          >
-            Start {formatGameType(recommendation.game_type)} practice
-          </Link>
-        </section>
-      ) : (
-        <Notice>
-          No practice recommendation yet. Write some Java in VS Code with Code Coach
-          running, and repeat a mistake a few times — then come back.
-        </Notice>
-      )}
+                `auto` hands the choice to the engine whose job it is, using
+                this student's own history on this concept. The suggestion is
+                still shown above; it is a signal, not the decision.
+              */}
+              <Link
+                href={`/play/${recommendation.game_type}/${recommendation.concept_tag}/auto?rec=${encodeURIComponent(recommendation.recommendation_id)}`}
+                className={buttonClass({ size: 'lg' })}
+              >
+                <Play size={17} strokeWidth={2.4} aria-hidden />
+                Start {formatGameType(recommendation.game_type)} practice
+              </Link>
+            </div>
+          </Card>
+        ) : (
+          <EmptyState icon={Gamepad2} title="No practice lined up yet">
+            Write some Java in your editor with the Code Guru extension running.
+            Repeat a mistake a few times and a round aimed at it will appear here.
+          </EmptyState>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function Score({
+  icon: Icon,
+  label,
+  value,
+  tone,
+  toneBg,
+}: {
+  icon: typeof Trophy;
+  label: string;
+  value: number;
+  tone: string;
+  toneBg: string;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-cg ${toneBg} ${tone}`}>
+        <Icon size={22} strokeWidth={2.1} aria-hidden />
+      </span>
+      <div>
+        <div className="text-2xl font-bold tabular-nums tracking-tight text-ink">
+          {value}
+        </div>
+        <div className="text-sm text-muted">{label}</div>
+      </div>
     </div>
   );
 }
 
 function Metric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div>
-      <div className="text-2xl font-semibold text-ink">{value}</div>
-      <div className="text-sm text-muted">{label}</div>
-    </div>
-  );
-}
-
-function Notice({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rounded-cg border border-line bg-card-alt px-4 py-3 text-body">
-      {children}
+    <div className="rounded-cg bg-card-alt px-3.5 py-3">
+      <dd className="text-xl font-bold tabular-nums text-ink">{value}</dd>
+      <dt className="mt-0.5 text-xs text-muted">{label}</dt>
     </div>
   );
 }

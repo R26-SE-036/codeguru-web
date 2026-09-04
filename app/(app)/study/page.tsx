@@ -1,15 +1,27 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
+import { ArrowRight, BookOpenCheck, LineChart, Repeat2, Sparkles } from 'lucide-react';
+
 import { getSession, serverFetch } from '@/lib/server-api';
 import { formatConcept } from '@/lib/vocabulary';
+import {
+  Badge,
+  Card,
+  EmptyState,
+  PageHeader,
+  Unavailable,
+  buttonClass,
+} from '@/components/ui';
+
+export const metadata: Metadata = { title: 'Study' };
 
 /**
- * Study home: the concepts Code Coach says you keep getting wrong.
+ * Study home: the concepts you keep getting wrong.
  *
- * Ported from Study-Guider App.jsx, which had no router at all - it switched
- * between triggers, lesson, quiz and dashboard on a single `phase` state
- * variable. That meant no addressable URLs: a student could not link to a
- * lesson, a refresh dropped them back to the list, and the browser's back
- * button did nothing useful. Those are now four real routes.
+ * Ported from a single-page app that switched between triggers, lesson, quiz
+ * and dashboard on one `phase` state variable. That meant no addressable URLs:
+ * a student could not link to a lesson, a refresh dropped them back to the
+ * list, and the back button did nothing useful. Those are four real routes now.
  */
 
 interface Trigger {
@@ -24,6 +36,12 @@ interface Trigger {
   lesson?: { lesson_id?: string; title?: string };
 }
 
+const STRUGGLE_TONE = {
+  high: 'danger',
+  medium: 'warn',
+  low: 'accent',
+} as const;
+
 export default async function StudyPage() {
   const session = await getSession();
   const data = await serverFetch<{ triggers?: Trigger[] }>(
@@ -35,88 +53,113 @@ export default async function StudyPage() {
   const triggers = data?.triggers ?? [];
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold text-ink">Study</h1>
-          <p className="mt-1 text-body">
-            Concepts the coach saw you struggle with more than once.
-          </p>
-        </div>
-        <Link
-          href="/study/progress"
-          className="rounded-cg border border-line px-4 py-2 text-body transition hover:bg-card-alt"
-        >
-          Your progress
-        </Link>
-      </header>
+    <div className="space-y-8">
+      <PageHeader
+        eyebrow="Study"
+        title="Lessons built for your gaps"
+        lead="A concept lands here once you have got it wrong more than once. Each lesson is written for the mistake you actually made, not the topic in general."
+        icon={Sparkles}
+        tone="text-hue-study"
+        toneBg="bg-hue-study/10"
+        actions={
+          <Link
+            href="/study/progress"
+            className={buttonClass({ variant: 'secondary' })}
+          >
+            <LineChart size={16} strokeWidth={2.2} aria-hidden />
+            Your progress
+          </Link>
+        }
+      />
 
       {/*
-        Null means Study Guider did not answer. An empty array means it did and
+        Null means the service did not answer. An empty array means it did and
         there is genuinely nothing to work on - which is good news. Rendering
         the same thing for both would tell a student they are all caught up at
         the exact moment the service is down.
       */}
       {data === null ? (
-        <div className="rounded-cg border border-line bg-card-alt px-4 py-3 text-body">
-          Your lessons are unavailable right now. This is a connection problem — your
-          progress is unaffected.
-        </div>
+        <Unavailable what="Your lessons" />
       ) : triggers.length === 0 ? (
-        <div className="rounded-cg border border-line bg-card px-4 py-6 text-center">
-          <p className="text-ink">Nothing to work on right now.</p>
-          <p className="mt-1 text-sm text-muted">
-            Keep coding in VS Code. If you repeat the same mistake, a lesson will appear
-            here.
-          </p>
-        </div>
+        <EmptyState icon={BookOpenCheck} title="Nothing to work on right now">
+          Keep writing Java in your editor. If the same mistake shows up more than
+          once, a lesson for it appears here automatically.
+        </EmptyState>
       ) : (
-        <ul className="space-y-3">
-          {triggers.map((trigger) => (
-            <li
-              key={trigger.trigger_id}
-              className="rounded-cg border border-line bg-card p-5"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="font-medium text-ink">
-                    {trigger.lesson?.title ?? formatConcept(trigger.concept_tag)}
-                  </h2>
-                  <p className="mt-1 text-sm text-muted">
+        <ul className="grid gap-4 md:grid-cols-2">
+          {triggers.map((trigger) => {
+            const tone =
+              STRUGGLE_TONE[
+                (trigger.struggle_level?.toLowerCase() as keyof typeof STRUGGLE_TONE) ??
+                  'low'
+              ] ?? 'accent';
+
+            return (
+              <li key={trigger.trigger_id} className="cg-card cg-card-hover flex flex-col p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-cg bg-hue-study/10 text-hue-study">
+                    <Sparkles size={19} strokeWidth={2.1} aria-hidden />
+                  </span>
+
+                  <div className="flex flex-wrap justify-end gap-1.5">
+                    {trigger.struggle_level && (
+                      <Badge tone={tone}>{trigger.struggle_level} struggle</Badge>
+                    )}
+                    {trigger.intervention_status === 'lesson_opened' && (
+                      <Badge tone="neutral">Opened</Badge>
+                    )}
+                  </div>
+                </div>
+
+                <h2 className="mt-4 text-base font-bold text-ink">
+                  {trigger.lesson?.title ?? formatConcept(trigger.concept_tag)}
+                </h2>
+
+                <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
+                  <span className="font-medium text-body">
                     {formatConcept(trigger.concept_tag)}
-                    {trigger.error_type ? ` · ${trigger.error_type}` : ''}
-                    {trigger.repeat_count ? ` · seen ${trigger.repeat_count} times` : ''}
+                  </span>
+                  {trigger.error_type && (
+                    <>
+                      <Dot />
+                      <span className="font-mono text-xs">{trigger.error_type}</span>
+                    </>
+                  )}
+                  {trigger.repeat_count ? (
+                    <>
+                      <Dot />
+                      <span className="inline-flex items-center gap-1">
+                        <Repeat2 size={13} aria-hidden />
+                        {trigger.repeat_count}×
+                      </span>
+                    </>
+                  ) : null}
+                </p>
+
+                {trigger.reason && (
+                  <p className="mt-3 rounded-cg bg-card-alt px-3 py-2.5 text-sm text-body">
+                    {trigger.reason}
                   </p>
-                </div>
+                )}
 
-                <div className="flex items-center gap-2">
-                  {trigger.struggle_level && (
-                    <span className="rounded-cg bg-warn/10 px-2.5 py-1 text-sm text-warn">
-                      {trigger.struggle_level}
-                    </span>
-                  )}
-                  {trigger.intervention_status === 'lesson_opened' && (
-                    <span className="rounded-cg bg-accent-soft/50 px-2.5 py-1 text-sm text-accent-strong">
-                      lesson opened
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {trigger.reason && (
-                <p className="mt-3 text-sm text-body">{trigger.reason}</p>
-              )}
-
-              <Link
-                href={`/study/${encodeURIComponent(trigger.trigger_id)}/lesson`}
-                className="mt-4 inline-flex rounded-cg bg-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-accent-strong"
-              >
-                Open the lesson
-              </Link>
-            </li>
-          ))}
+                <Link
+                  href={`/study/${encodeURIComponent(trigger.trigger_id)}/lesson`}
+                  className={buttonClass({ className: 'mt-5 w-full' })}
+                >
+                  Open the lesson
+                  <ArrowRight size={16} strokeWidth={2.4} aria-hidden />
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
+  );
+}
+
+function Dot() {
+  return (
+    <span aria-hidden className="h-1 w-1 rounded-full bg-faint-nontext" />
   );
 }

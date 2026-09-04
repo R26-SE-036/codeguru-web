@@ -98,3 +98,37 @@ export function describeDifficultySource(source: string | undefined): string | n
       return null;
   }
 }
+
+/**
+ * The originating component of a timeline event, as a student should read it.
+ *
+ * The store records `code_coach`, `study_guider`, `adaptive_gamification` and
+ * `pair_path`. Those are service names — an internal fact with no meaning to
+ * the person reading their own activity — and the raw value used to be printed
+ * straight onto the home page.
+ */
+const COMPONENT_LABELS: Record<string, string> = {
+  code_coach: 'Editor',
+  study_guider: 'Study',
+  adaptive_gamification: 'Practice',
+  pair_path: 'Pair',
+};
+
+export function formatComponent(value: string | undefined): string {
+  if (!value) return 'Activity';
+  return COMPONENT_LABELS[value] ?? formatConcept(value);
+}
+
+/** A section hue class for a component, matching the sidebar. */
+export function componentTone(value: string | undefined): string {
+  switch (value) {
+    case 'study_guider':
+      return 'bg-hue-study/10 text-hue-study ring-hue-study/25';
+    case 'adaptive_gamification':
+      return 'bg-hue-play/10 text-hue-play ring-hue-play/25';
+    case 'pair_path':
+      return 'bg-hue-pair/10 text-hue-pair ring-hue-pair/25';
+    default:
+      return 'bg-hue-insight/10 text-hue-insight ring-hue-insight/25';
+  }
+}

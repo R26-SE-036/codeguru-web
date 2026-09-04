@@ -3,11 +3,19 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { ArrowRight, KeyRound, Loader2, Play, Users } from 'lucide-react';
+
 import { ApiError, api } from '@/lib/api';
+import { FormError } from '@/components/field';
+import {
+  Badge,
+  Card,
+  PageHeader,
+  SectionTitle,
+  buttonClass,
+} from '@/components/ui';
 
 /**
- * Ported from Pair_Path dashboard/page.tsx.
- *
  * Start a session on a question, or join a partner's with their code.
  */
 
@@ -31,6 +39,10 @@ interface Session {
   question?: { title?: string };
 }
 
+const SELECT_CLASS =
+  'cg-focusable h-11 w-full rounded-cg border border-line bg-card px-3 text-ink ' +
+  'hover:border-line-strong focus-visible:border-accent disabled:opacity-60';
+
 export default function PairPage() {
   const router = useRouter();
 
@@ -52,9 +64,9 @@ export default function PairPage() {
       setTopics(topicList);
       setSessions(mySessions);
     } catch (err) {
-      // PairPath unavailable is a 503 from the proxy, distinct from a rejection.
-      // Saying which one it is stops a student trying to sign in again over an
-      // outage that has nothing to do with their session.
+      // Unavailable is a 503 from the proxy, distinct from a rejection. Saying
+      // which one it is stops a student trying to sign in again over an outage
+      // that has nothing to do with their session.
       setError(
         err instanceof ApiError && err.isUnavailable
           ? 'Pairing is unavailable right now. Everything else still works.'
@@ -108,126 +120,182 @@ export default function PairPage() {
 
   return (
     <div className="space-y-8">
-      <header>
-        <h1 className="text-2xl font-semibold text-ink">Pair programming</h1>
-        <p className="mt-1 text-body">
-          Work through a problem with a partner, with the editor shared live.
-        </p>
-      </header>
+      <PageHeader
+        eyebrow="Pair"
+        title="Solve it with a partner"
+        lead="Work through a problem together in a shared editor. One drives, one navigates, and you swap as you go."
+        icon={Users}
+        tone="text-hue-pair"
+        toneBg="bg-hue-pair/10"
+      />
 
-      {error && (
-        <p role="alert" className="rounded-cg bg-danger-soft px-4 py-3 text-danger">
-          {error}
-        </p>
-      )}
+      {error && <FormError>{error}</FormError>}
 
-      <div className="grid gap-6 md:grid-cols-2">
-        <section className="rounded-cg border border-line bg-card p-5">
-          <h2 className="font-medium text-ink">Start a session</h2>
+      <div className="grid gap-5 md:grid-cols-2">
+        {/* ── Start ──────────────────────────────────────────────────────── */}
+        <Card className="flex flex-col p-6">
+          <div className="flex items-center gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-cg bg-hue-pair/10 text-hue-pair">
+              <Play size={18} strokeWidth={2.2} aria-hidden />
+            </span>
+            <div>
+              <h2 className="font-bold text-ink">Start a session</h2>
+              <p className="text-sm text-muted">Pick something to work on.</p>
+            </div>
+          </div>
 
-          <label htmlFor="topic" className="mt-4 block text-sm text-muted">
-            Topic
-          </label>
-          <select
-            id="topic"
-            value={topicId}
-            onChange={(event) => {
-              setTopicId(event.target.value);
-              setQuestionId('');
-            }}
-            className="mt-1 w-full rounded-cg border border-line bg-card px-3 py-2 text-ink"
-          >
-            <option value="">Choose a topic…</option>
-            {topics?.map((topic) => (
-              <option key={topic.id} value={topic.id}>
-                {topic.name}
-              </option>
-            ))}
-          </select>
+          <div className="mt-5 flex-1 space-y-4">
+            <div>
+              <label htmlFor="topic" className="mb-1.5 block text-sm font-semibold text-ink">
+                Topic
+              </label>
+              <select
+                id="topic"
+                value={topicId}
+                onChange={(event) => {
+                  setTopicId(event.target.value);
+                  setQuestionId('');
+                }}
+                className={SELECT_CLASS}
+              >
+                <option value="">
+                  {topics === null ? 'Loading…' : 'Choose a topic…'}
+                </option>
+                {topics?.map((topic) => (
+                  <option key={topic.id} value={topic.id}>
+                    {topic.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <label htmlFor="question" className="mt-4 block text-sm text-muted">
-            Question
-          </label>
-          <select
-            id="question"
-            value={questionId}
-            onChange={(event) => setQuestionId(event.target.value)}
-            disabled={!questions.length}
-            className="mt-1 w-full rounded-cg border border-line bg-card px-3 py-2 text-ink disabled:opacity-60"
-          >
-            <option value="">
-              {questions.length ? 'Choose a question…' : 'Pick a topic first'}
-            </option>
-            {questions.map((question) => (
-              <option key={question.id} value={question.id}>
-                {question.title}
-                {question.difficulty ? ` · ${question.difficulty}` : ''}
-              </option>
-            ))}
-          </select>
+            <div>
+              <label
+                htmlFor="question"
+                className="mb-1.5 block text-sm font-semibold text-ink"
+              >
+                Question
+              </label>
+              <select
+                id="question"
+                value={questionId}
+                onChange={(event) => setQuestionId(event.target.value)}
+                disabled={!questions.length}
+                className={SELECT_CLASS}
+              >
+                <option value="">
+                  {questions.length ? 'Choose a question…' : 'Pick a topic first'}
+                </option>
+                {questions.map((question) => (
+                  <option key={question.id} value={question.id}>
+                    {question.title}
+                    {question.difficulty ? ` · ${question.difficulty}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
 
           <button
             type="button"
             onClick={createSession}
             disabled={!questionId || busy}
-            className="mt-5 w-full rounded-cg bg-accent px-4 py-2.5 font-medium text-white transition hover:bg-accent-strong disabled:opacity-50"
+            className={buttonClass({ size: 'lg', className: 'mt-6 w-full' })}
           >
-            Start
+            {busy ? <Loader2 size={17} className="animate-spin" aria-hidden /> : null}
+            Start session
           </button>
-        </section>
+        </Card>
 
-        <section className="rounded-cg border border-line bg-card p-5">
-          <h2 className="font-medium text-ink">Join a partner</h2>
-          <p className="mt-1 text-sm text-muted">Enter the code they share with you.</p>
+        {/* ── Join ───────────────────────────────────────────────────────── */}
+        <Card className="flex flex-col p-6">
+          <div className="flex items-center gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-cg bg-hue-insight/10 text-hue-insight">
+              <KeyRound size={18} strokeWidth={2.2} aria-hidden />
+            </span>
+            <div>
+              <h2 className="font-bold text-ink">Join a partner</h2>
+              <p className="text-sm text-muted">Enter the code they share with you.</p>
+            </div>
+          </div>
 
-          <input
-            value={joinCode}
-            onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
-            placeholder="ABC123"
-            maxLength={12}
-            className="mt-4 w-full rounded-cg border border-line bg-card px-3 py-2 font-mono uppercase tracking-widest text-ink"
-          />
+          <div className="mt-5 flex-1">
+            <label htmlFor="joinCode" className="mb-1.5 block text-sm font-semibold text-ink">
+              Session code
+            </label>
+            <input
+              id="joinCode"
+              value={joinCode}
+              onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
+              placeholder="ABC123"
+              maxLength={12}
+              autoComplete="off"
+              // A code is read aloud and typed in a hurry, so it gets room to
+              // breathe: monospace, wide tracking, and large enough that a
+              // 0/O or 1/I mix-up is visible before it is submitted.
+              className="cg-focusable h-14 w-full rounded-cg border border-line bg-card-alt text-center font-mono text-2xl font-semibold uppercase tracking-[0.35em] text-ink placeholder:text-faint-nontext placeholder:tracking-[0.35em] hover:border-line-strong focus-visible:border-accent"
+            />
+          </div>
 
           <button
             type="button"
             onClick={join}
             disabled={!joinCode.trim() || busy}
-            className="mt-5 w-full rounded-cg border border-line px-4 py-2.5 font-medium text-body transition hover:bg-card-alt disabled:opacity-50"
+            className={buttonClass({
+              variant: 'secondary',
+              size: 'lg',
+              className: 'mt-6 w-full',
+            })}
           >
-            Join
+            {busy ? <Loader2 size={17} className="animate-spin" aria-hidden /> : null}
+            Join session
           </button>
-        </section>
+        </Card>
       </div>
 
       {sessions.length > 0 && (
         <section>
-          <h2 className="mb-3 text-lg font-medium text-ink">Your sessions</h2>
-          <ul className="divide-y divide-line rounded-cg border border-line bg-card">
-            {sessions.map((session) => (
-              <li
-                key={session.id}
-                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
-              >
-                <div>
-                  <p className="text-ink">{session.question?.title ?? 'Pair session'}</p>
-                  <p className="text-sm text-muted">
-                    {session.status} · code{' '}
-                    <span className="font-mono">{session.joinCode}</span>
-                  </p>
-                </div>
+          <SectionTitle hint={`${sessions.length} total`}>Your sessions</SectionTitle>
+
+          <Card className="divide-y divide-line overflow-hidden">
+            {sessions.map((session) => {
+              const active = session.status === 'ACTIVE';
+
+              return (
                 <Link
-                  href={
-                    session.status === 'ACTIVE'
-                      ? `/pair/${session.id}`
-                      : `/pair/${session.id}/results`
-                  }
-                  className="text-accent hover:underline"
+                  key={session.id}
+                  href={active ? `/pair/${session.id}` : `/pair/${session.id}/results`}
+                  className="cg-focusable group flex flex-wrap items-center justify-between gap-3 px-5 py-4 transition hover:bg-card-alt"
                 >
-                  {session.status === 'ACTIVE' ? 'Rejoin' : 'See results'}
+                  <div className="min-w-0">
+                    <p className="font-semibold text-ink">
+                      {session.question?.title ?? 'Pair session'}
+                    </p>
+                    <p className="mt-0.5 flex items-center gap-2 text-sm text-muted">
+                      <span>code</span>
+                      <span className="rounded bg-inset px-1.5 py-0.5 font-mono text-xs tracking-widest text-ink">
+                        {session.joinCode}
+                      </span>
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <Badge tone={active ? 'ok' : 'neutral'}>
+                      {active ? 'Active' : 'Finished'}
+                    </Badge>
+                    <span className="inline-flex items-center gap-1 text-sm font-semibold text-accent">
+                      {active ? 'Rejoin' : 'Results'}
+                      <ArrowRight
+                        size={15}
+                        aria-hidden
+                        className="transition-transform duration-200 ease-cg group-hover:translate-x-0.5"
+                      />
+                    </span>
+                  </div>
                 </Link>
-              </li>
-            ))}
-          </ul>
+              );
+            })}
+          </Card>
         </section>
       )}
     </div>
