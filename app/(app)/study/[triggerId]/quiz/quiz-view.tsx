@@ -3,22 +3,33 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  CircleCheck,
+  CircleX,
+  Info,
+  Loader2,
+  ListChecks,
+  TriangleAlert,
+} from 'lucide-react';
+
 import { ApiError, api } from '@/lib/api';
+import { Card, Meter, buttonClass } from '@/components/ui';
 
 /**
- * Ported from Study-Guider ValidationQuiz.jsx.
- *
  * The quiz is what closes the remediation loop. Two calls follow it, tracked
  * separately on purpose so one failing does not hide the other:
  *
- *  1. POST /api/progress/update  - Study Guider's own record, into the Neo4j
+ *  1. POST /api/progress/update  - this service's own record, into the
  *     progress graph.
- *  2. POST /api/remediation/triggers/{id}/quiz-completed  - Code Coach, which
- *     is what actually resolves the trigger.
+ *  2. POST /api/remediation/triggers/{id}/quiz-completed  - the platform
+ *     store, which is what actually resolves the trigger.
  *
- * `passed` is deliberately not sent. The integration guide is explicit: send
- * the score and let Code Coach apply the platform pass mark, or this service
- * quietly disagrees with the rest of the platform about what passing means.
+ * `passed` is deliberately not sent. The integration contract is explicit: send
+ * the score and let the platform apply the pass mark, or this service quietly
+ * disagrees with the rest of the platform about what passing means.
  */
 
 interface QuizQuestion {
@@ -192,41 +203,99 @@ export function QuizView({ triggerId }: { triggerId: string }) {
 
   if (error) {
     return (
-      <div className="mx-auto max-w-2xl space-y-4">
-        <p className="rounded-cg bg-danger-soft px-4 py-3 text-danger">{error}</p>
-        <Link href="/study" className="inline-flex text-accent hover:underline">
-          Back to your lessons
-        </Link>
+      <div className="mx-auto max-w-2xl">
+        <Card className="px-6 py-12 text-center">
+          <span className="mx-auto grid h-12 w-12 place-items-center rounded-cg-lg bg-danger/10 text-danger">
+            <TriangleAlert size={22} strokeWidth={2} aria-hidden />
+          </span>
+          <h1 className="mt-4 text-lg font-bold text-ink">No quiz to show</h1>
+          <p className="mx-auto mt-2 max-w-md text-sm text-body">{error}</p>
+          <Link
+            href="/study"
+            className={buttonClass({ variant: 'secondary', className: 'mt-6' })}
+          >
+            <ArrowLeft size={16} strokeWidth={2.2} aria-hidden />
+            Back to your lessons
+          </Link>
+        </Card>
       </div>
     );
   }
 
   if (!questions) {
-    return <p className="mx-auto max-w-2xl text-muted">Preparing your quiz…</p>;
+    return (
+      <div className="mx-auto max-w-2xl">
+        <Card className="flex flex-col items-center px-6 py-16 text-center">
+          <span className="grid h-14 w-14 place-items-center rounded-cg-lg bg-hue-study/10 text-hue-study">
+            <Loader2 size={26} strokeWidth={2} aria-hidden className="animate-spin" />
+          </span>
+          <h1 className="mt-5 text-lg font-bold text-ink">Preparing your quiz</h1>
+          <p className="mt-2 max-w-sm text-sm text-body">
+            The questions are written for the mistake you made, so they take a moment.
+          </p>
+        </Card>
+      </div>
+    );
   }
 
   if (finished) {
     const total = questions.length;
     const percent = total > 0 ? Math.round((score / total) * 100) : 0;
 
+    // 70 is the platform pass mark. Shown here only to set the tone of the
+    // result card - the actual decision is made server-side, deliberately, so
+    // this service cannot disagree with the rest of the platform.
+    const passed = percent >= 70;
+
     return (
-      <div className="mx-auto max-w-2xl space-y-6 text-center">
-        <div>
-          <p className="text-5xl font-semibold text-ink">
-            {score}
-            <span className="text-muted">/{total}</span>
-          </p>
-          <p className="mt-1 text-body">{percent}%</p>
-        </div>
+      <div className="mx-auto max-w-2xl space-y-6">
+        <Card className="relative overflow-hidden px-6 py-10 text-center">
+          <div
+            aria-hidden
+            className={`pointer-events-none absolute -top-24 left-1/2 h-64 w-64 -translate-x-1/2 rounded-full blur-3xl ${
+              passed ? 'bg-ok/20' : 'bg-warn/20'
+            }`}
+          />
+
+          <div className="relative">
+            <span
+              className={`mx-auto grid h-14 w-14 place-items-center rounded-cg-lg ${
+                passed ? 'bg-ok/10 text-ok' : 'bg-warn/10 text-warn'
+              }`}
+            >
+              {passed ? (
+                <CircleCheck size={26} strokeWidth={2} aria-hidden />
+              ) : (
+                <TriangleAlert size={26} strokeWidth={2} aria-hidden />
+              )}
+            </span>
+
+            <p className="mt-5 text-6xl font-extrabold tabular-nums tracking-tight text-ink">
+              {percent}
+              <span className="text-3xl text-muted">%</span>
+            </p>
+            <p className="mt-1 font-medium text-body">
+              {score} of {total} correct
+            </p>
+
+            <div className="mx-auto mt-6 max-w-xs">
+              <Meter
+                value={percent}
+                tone={passed ? 'bg-ok' : 'bg-warn'}
+                label="Quiz score"
+              />
+            </div>
+          </div>
+        </Card>
 
         {/*
           These two are reported separately because they mean different things.
-          The Neo4j write is Study Guider's own record; the Code Coach call is
+          The graph write is this service's own record; the platform call is
           what actually resolves the trigger. A student whose score reached the
           pass mark but whose report failed is still going to see this concept
           on their list, and being told that is better than wondering why.
         */}
-        <div className="space-y-2 text-left">
+        <div className="space-y-2">
           <StatusLine
             status={graphStatus}
             sending="Saving your progress…"
@@ -235,30 +304,30 @@ export function QuizView({ triggerId }: { triggerId: string }) {
           />
           <StatusLine
             status={coachStatus}
-            sending="Reporting your score to the coach…"
+            sending="Recording your score…"
             ok={
               triggerResolved
-                ? 'Reported. This concept is done and drops off your list.'
-                : 'Reported, but below the pass mark — this concept stays on your list.'
+                ? 'Recorded. This concept is done and drops off your list.'
+                : 'Recorded, but below the pass mark — this concept stays on your list.'
             }
-            failed="Could not reach the coach. Your score was not recorded there, so this concept stays flagged."
+            failed="Your score could not be recorded, so this concept stays flagged."
           />
         </div>
 
-        <div className="flex justify-center gap-3">
+        <div className="flex flex-wrap justify-center gap-3">
           <button
             type="button"
             onClick={() => {
               router.push('/study');
               router.refresh();
             }}
-            className="rounded-cg bg-accent px-5 py-2.5 font-medium text-white transition hover:bg-accent-strong"
+            className={buttonClass({ size: 'lg' })}
           >
             Back to your lessons
           </button>
           <Link
             href="/study/progress"
-            className="rounded-cg border border-line px-5 py-2.5 text-body transition hover:bg-card-alt"
+            className={buttonClass({ variant: 'secondary', size: 'lg' })}
           >
             See your progress
           </Link>
@@ -272,51 +341,104 @@ export function QuizView({ triggerId }: { triggerId: string }) {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <header className="flex items-baseline justify-between">
-        <h1 className="text-lg font-medium text-ink">
-          Question {index + 1} of {questions.length}
-        </h1>
-        <span className="text-sm text-muted">Score {score}</span>
+      <header>
+        <div className="flex items-baseline justify-between gap-3">
+          <h1 className="flex items-center gap-2 font-bold text-ink">
+            <ListChecks size={17} strokeWidth={2.2} aria-hidden className="text-hue-study" />
+            Question {index + 1}
+            <span className="font-medium text-muted">of {questions.length}</span>
+          </h1>
+          <span className="text-sm font-semibold tabular-nums text-muted">
+            {score} correct
+          </span>
+        </div>
+
+        {/* Progress counts questions ANSWERED, not the one on screen: at the
+            first question nothing is done yet, so the bar starts empty. */}
+        <div className="mt-3">
+          <Meter
+            value={(index / questions.length) * 100}
+            tone="bg-hue-study"
+            label="Quiz progress"
+          />
+        </div>
       </header>
 
-      <p className="text-ink">{question.question}</p>
+      <Card className="p-6 sm:p-7">
+        <p className="text-lg font-semibold leading-snug text-ink">{question.question}</p>
 
-      <div className="space-y-2">
-        {question.options.map((option) => {
-          const chosen = selected === option;
-          const correctOne = checked && matches(option, question.correct_answer);
+        <div className="mt-5 space-y-2.5">
+          {question.options.map((option) => {
+            const chosen = selected === option;
+            const correctOne = checked && matches(option, question.correct_answer);
+            const wrongPick = checked && chosen && !correctOne;
 
-          return (
-            <button
-              key={option}
-              type="button"
-              disabled={checked}
-              onClick={() => setSelected(option)}
-              className={`w-full rounded-cg border px-4 py-3 text-left transition disabled:cursor-default ${
-                correctOne
-                  ? 'border-ok bg-ok/10 text-ink'
-                  : chosen && checked
-                    ? 'border-danger bg-danger-soft text-ink'
-                    : chosen
-                      ? 'border-accent bg-accent-soft/40 text-ink'
-                      : 'border-line bg-card text-body hover:bg-card-alt'
-              }`}
-            >
-              {option}
-            </button>
-          );
-        })}
-      </div>
+            return (
+              <button
+                key={option}
+                type="button"
+                disabled={checked}
+                onClick={() => setSelected(option)}
+                aria-pressed={chosen}
+                className={`cg-focusable flex w-full items-center gap-3 rounded-cg border px-4 py-3.5 text-left transition duration-150 ease-cg disabled:cursor-default ${
+                  correctOne
+                    ? 'border-ok bg-ok/10 text-ink'
+                    : wrongPick
+                      ? 'border-danger bg-danger/10 text-ink'
+                      : chosen
+                        ? 'border-accent bg-accent/10 text-ink'
+                        : 'border-line bg-card text-body hover:border-line-strong hover:bg-card-alt'
+                }`}
+              >
+                <span
+                  aria-hidden
+                  className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 transition ${
+                    correctOne
+                      ? 'border-ok bg-ok text-white'
+                      : wrongPick
+                        ? 'border-danger bg-danger text-white'
+                        : chosen
+                          ? 'border-accent bg-accent'
+                          : 'border-line-strong'
+                  }`}
+                >
+                  {correctOne && <Check size={13} strokeWidth={3.2} />}
+                  {wrongPick && <CircleX size={13} strokeWidth={3} />}
+                </span>
+
+                <span className="flex-1">{option}</span>
+              </button>
+            );
+          })}
+        </div>
+      </Card>
 
       {checked && (
-        <div
-          className={`rounded-cg px-4 py-3 ${isCorrect ? 'bg-ok/10 text-ok' : 'bg-warn/10 text-warn'}`}
+        <Card
+          className={`flex gap-4 border-l-4 p-5 ${
+            isCorrect ? 'border-l-ok' : 'border-l-warn'
+          }`}
         >
-          <p className="font-medium">{isCorrect ? 'Correct.' : 'Not quite.'}</p>
-          {question.explanation && (
-            <p className="mt-1 text-body">{question.explanation}</p>
-          )}
-        </div>
+          <span
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-cg ${
+              isCorrect ? 'bg-ok/10 text-ok' : 'bg-warn/10 text-warn'
+            }`}
+          >
+            {isCorrect ? (
+              <CircleCheck size={18} strokeWidth={2.2} aria-hidden />
+            ) : (
+              <Info size={18} strokeWidth={2.2} aria-hidden />
+            )}
+          </span>
+          <div>
+            <p className={`font-bold ${isCorrect ? 'text-ok' : 'text-warn'}`}>
+              {isCorrect ? 'Correct' : 'Not quite'}
+            </p>
+            {question.explanation && (
+              <p className="mt-1 text-body">{question.explanation}</p>
+            )}
+          </div>
+        </Card>
       )}
 
       <div className="flex justify-end">
@@ -328,9 +450,9 @@ export function QuizView({ triggerId }: { triggerId: string }) {
               setChecked(true);
               if (matches(selected, question.correct_answer)) setScore((s) => s + 1);
             }}
-            className="rounded-cg bg-accent px-5 py-2.5 font-medium text-white transition hover:bg-accent-strong disabled:opacity-50"
+            className={buttonClass({ size: 'lg' })}
           >
-            Check
+            Check answer
           </button>
         ) : (
           <button
@@ -345,9 +467,10 @@ export function QuizView({ triggerId }: { triggerId: string }) {
                 setChecked(false);
               }
             }}
-            className="rounded-cg bg-accent px-5 py-2.5 font-medium text-white transition hover:bg-accent-strong"
+            className={buttonClass({ size: 'lg' })}
           >
-            {index + 1 >= questions.length ? 'Finish' : 'Next question'}
+            {index + 1 >= questions.length ? 'Finish quiz' : 'Next question'}
+            <ArrowRight size={17} strokeWidth={2.4} aria-hidden />
           </button>
         )}
       </div>
@@ -371,10 +494,23 @@ function StatusLine({
   const text = status === 'sending' ? sending : status === 'ok' ? ok : failed;
   const tone =
     status === 'failed'
-      ? 'border-danger bg-danger-soft text-danger'
+      ? 'border-danger/30 bg-danger/10 text-danger'
       : status === 'ok'
-        ? 'border-ok bg-ok/10 text-ok'
+        ? 'border-ok/30 bg-ok/10 text-ok'
         : 'border-line bg-card-alt text-body';
 
-  return <p className={`rounded-cg border-l-4 px-4 py-2 text-sm ${tone}`}>{text}</p>;
+  return (
+    <p
+      className={`flex items-center gap-2.5 rounded-cg border px-4 py-2.5 text-sm font-medium ${tone}`}
+    >
+      {status === 'sending' ? (
+        <Loader2 size={15} strokeWidth={2.4} aria-hidden className="animate-spin" />
+      ) : status === 'ok' ? (
+        <CircleCheck size={15} strokeWidth={2.4} aria-hidden />
+      ) : (
+        <CircleX size={15} strokeWidth={2.4} aria-hidden />
+      )}
+      {text}
+    </p>
+  );
 }

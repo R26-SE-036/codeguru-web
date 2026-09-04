@@ -2,12 +2,25 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import {
+  ArrowLeft,
+  CircleCheck,
+  Gamepad2,
+  GripVertical,
+  Info,
+  Lightbulb,
+  Loader2,
+  Timer,
+  TriangleAlert,
+} from 'lucide-react';
+
 import { ApiError, api } from '@/lib/api';
 import { describeDifficultySource, formatConcept, formatGameType } from '@/lib/vocabulary';
+import { FormError } from '@/components/field';
+import { Badge, Card, buttonClass } from '@/components/ui';
 
 /**
- * Ported from adaptive-gamification-engine GamePlayer.jsx.
- *
  * The game machine, the drag-and-drop and the three interactions are the
  * original's. What changed is everything around the edges: two axios clients
  * become one BFF client, react-router's `location.state` becomes sessionStorage
@@ -259,15 +272,36 @@ export function GamePlayer({
   }
 
   if (state.phase === 'loading' && !state.error) {
-    return <p className="text-muted">Loading your practice…</p>;
+    return (
+      <div className="mx-auto max-w-3xl space-y-4">
+        <div className="cg-skeleton h-16 w-full" />
+        <div className="cg-skeleton h-64 w-full" />
+        <div className="cg-skeleton h-11 w-40" />
+      </div>
+    );
   }
 
   const question = state.question;
 
   if (!question) {
     return (
-      <div className="rounded-cg border border-line bg-card p-6">
-        <p className="text-danger">{state.error ?? 'No activity available.'}</p>
+      <div className="mx-auto max-w-3xl">
+        <Card className="px-6 py-12 text-center">
+          <span className="mx-auto grid h-12 w-12 place-items-center rounded-cg-lg bg-danger/10 text-danger">
+            <TriangleAlert size={22} strokeWidth={2} aria-hidden />
+          </span>
+          <h1 className="mt-4 text-lg font-bold text-ink">No round to play</h1>
+          <p className="mx-auto mt-2 max-w-md text-sm text-body">
+            {state.error ?? 'No activity available.'}
+          </p>
+          <Link
+            href="/play"
+            className={buttonClass({ variant: 'secondary', className: 'mt-6' })}
+          >
+            <ArrowLeft size={16} strokeWidth={2.2} aria-hidden />
+            Back to practice
+          </Link>
+        </Card>
       </div>
     );
   }
@@ -275,39 +309,55 @@ export function GamePlayer({
   const chosenBy = describeDifficultySource(question.difficultyChosenBy);
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <header className="flex flex-wrap items-baseline justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-ink">
-            {formatGameType(activeGameType)}
-          </h1>
-          <p className="mt-1 text-sm text-muted">
-            {formatConcept(conceptTag)} · {activeDifficulty}
-            {chosenBy ? ` — ${chosenBy}` : ''}
-          </p>
+    <div className="mx-auto max-w-3xl space-y-5">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-cg bg-hue-play/10 text-hue-play">
+            <Gamepad2 size={19} strokeWidth={2.1} aria-hidden />
+          </span>
+          <div>
+            <h1 className="font-bold text-ink">{formatGameType(activeGameType)}</h1>
+            <p className="text-sm text-muted">
+              {formatConcept(conceptTag)}
+              {chosenBy ? ` — ${chosenBy}` : ''}
+            </p>
+          </div>
         </div>
-        <span className="font-mono text-sm text-muted">{state.seconds}s</span>
+
+        <div className="flex items-center gap-2">
+          <Badge tone="neutral">{activeDifficulty}</Badge>
+          {/* tabular-nums so a ticking clock does not jitter the layout every
+              time the digit width changes. */}
+          <Badge tone="accent" className="tabular-nums">
+            <Timer size={13} strokeWidth={2.4} aria-hidden />
+            {state.seconds}s
+          </Badge>
+        </div>
       </header>
 
-      <section className="rounded-cg border border-line bg-card p-5">
-        <h2 className="border-b border-line pb-3 text-body">
-          {activeGameType === 'BugHunt' && 'Find the line with the mistake:'}
-          {activeGameType === 'DragDrop' && 'Drag the lines into a correct order:'}
-          {activeGameType === 'CodeTrace' && 'Trace the code and give the final output:'}
+      <Card className="overflow-hidden">
+        <h2 className="border-b border-line bg-card-alt px-5 py-3 font-semibold text-ink">
+          {activeGameType === 'BugHunt' && 'Find the line with the mistake'}
+          {activeGameType === 'DragDrop' && 'Drag the lines into a correct order'}
+          {activeGameType === 'CodeTrace' && 'Trace the code and give the final output'}
         </h2>
 
-        <div className="mt-4 overflow-x-auto rounded-cg bg-inset p-3 font-mono text-sm">
+        <div className="overflow-x-auto bg-inset p-4 font-mono text-sm">
           {activeGameType === 'BugHunt' &&
             question.codeLines.map((line, index) => (
               <button
                 key={index}
                 type="button"
                 onClick={() => dispatch({ type: 'ANSWER', answer: index })}
-                className={`flex w-full gap-4 rounded px-2 py-1 text-left transition ${
-                  state.answer === index ? 'bg-accent/20 text-ink' : 'hover:bg-card-alt'
+                className={`cg-focusable flex w-full gap-4 rounded-cg-sm px-2.5 py-1.5 text-left transition duration-150 ease-cg ${
+                  state.answer === index
+                    ? 'bg-accent/20 text-ink ring-1 ring-inset ring-accent/40'
+                    : 'hover:bg-card/70'
                 }`}
               >
-                <span className="select-none text-muted">{index + 1}</span>
+                <span className="w-5 select-none text-right text-faint-nontext">
+                  {index + 1}
+                </span>
                 <span className="whitespace-pre">{line}</span>
               </button>
             ))}
@@ -322,9 +372,13 @@ export function GamePlayer({
                 onDragEnter={() => (dragTo.current = position)}
                 onDragEnd={onDrop}
                 onDragOver={(event) => event.preventDefault()}
-                className="flex cursor-grab gap-4 rounded px-2 py-1 hover:bg-card-alt"
+                className="group flex cursor-grab items-center gap-3 rounded-cg-sm px-2.5 py-1.5 transition hover:bg-card/70 active:cursor-grabbing"
               >
-                <span className="select-none text-muted">⠿</span>
+                <GripVertical
+                  size={15}
+                  aria-hidden
+                  className="shrink-0 text-faint-nontext transition group-hover:text-muted"
+                />
                 <span className="whitespace-pre">{question.codeLines[originalIndex]}</span>
               </div>
             ))}
@@ -332,50 +386,59 @@ export function GamePlayer({
           {activeGameType === 'CodeTrace' && (
             <>
               {question.codeLines.map((line, index) => (
-                <div key={index} className="flex gap-4 px-2 py-1">
-                  <span className="select-none text-muted">{index + 1}</span>
+                <div key={index} className="flex gap-4 px-2.5 py-1.5">
+                  <span className="w-5 select-none text-right text-faint-nontext">
+                    {index + 1}
+                  </span>
                   <span className="whitespace-pre">{line}</span>
                 </div>
               ))}
-              <div className="mt-4 flex items-center gap-3">
-                <label htmlFor="trace" className="font-sans text-body">
-                  Final output:
+              <div className="mt-5 border-t border-line pt-4">
+                <label
+                  htmlFor="trace"
+                  className="mb-2 block font-sans text-sm font-semibold text-ink"
+                >
+                  Final output
                 </label>
                 <input
                   id="trace"
                   value={typeof state.answer === 'string' ? state.answer : ''}
                   onChange={(event) => dispatch({ type: 'ANSWER', answer: event.target.value })}
                   placeholder="What does it print?"
-                  className="flex-1 rounded-cg border border-line bg-card px-3 py-2 font-sans text-ink"
+                  className="cg-focusable h-11 w-full rounded-cg border border-line bg-card px-3.5 font-mono text-ink placeholder:font-sans placeholder:text-faint-nontext hover:border-line-strong focus-visible:border-accent"
                 />
               </div>
             </>
           )}
         </div>
-      </section>
+      </Card>
 
       {state.hintLevel > 0 && question.hints && (
-        <div className="rounded-cg border-l-4 border-warn bg-warn/10 px-4 py-3">
-          <p className="text-body">
-            <strong>Hint {state.hintLevel}:</strong> {question.hints[state.hintLevel - 1]}
-          </p>
-        </div>
+        <Card className="flex gap-4 border-l-4 border-l-warn p-5">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-cg bg-warn/10 text-warn">
+            <Lightbulb size={18} strokeWidth={2.2} aria-hidden />
+          </span>
+          <div>
+            <p className="font-bold text-ink">Hint {state.hintLevel} of 3</p>
+            <p className="mt-1 text-body">{question.hints[state.hintLevel - 1]}</p>
+          </div>
+        </Card>
       )}
 
-      {state.error && (
-        <p role="alert" className="rounded-cg bg-danger-soft px-4 py-3 text-danger">
-          {state.error}
-        </p>
-      )}
+      {state.error && <FormError>{state.error}</FormError>}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
           onClick={() => dispatch({ type: 'HINT' })}
           disabled={state.hintLevel >= 3 || state.phase !== 'playing'}
-          className="rounded-cg border border-line px-4 py-2 text-body transition hover:bg-card-alt disabled:opacity-50"
+          className={buttonClass({ variant: 'secondary' })}
         >
-          Use a hint {state.hintLevel > 0 ? `(${state.hintLevel}/3)` : ''}
+          <Lightbulb size={16} strokeWidth={2.2} aria-hidden />
+          {/* The count is shown from the first hint on, because each one costs
+              15 points and a student should be able to see the running cost
+              before deciding to take another. */}
+          Use a hint{state.hintLevel > 0 ? ` (${state.hintLevel}/3)` : ''}
         </button>
 
         <div className="flex items-center gap-3">
@@ -384,27 +447,48 @@ export function GamePlayer({
             type="button"
             onClick={submit}
             disabled={state.answer === null || state.phase !== 'playing'}
-            className="rounded-cg bg-accent px-5 py-2 font-medium text-white transition hover:bg-accent-strong disabled:opacity-50"
+            className={buttonClass()}
           >
-            Submit
+            Submit answer
           </button>
         </div>
       </div>
 
       {result && (
-        <div
-          className={`rounded-cg px-4 py-3 ${result.score > 0 ? 'bg-ok/10 text-ok' : 'bg-warn/10 text-warn'}`}
+        <Card
+          className={`flex gap-4 border-l-4 p-5 ${
+            result.score > 0 ? 'border-l-ok' : 'border-l-warn'
+          }`}
         >
-          <p className="font-medium">
-            {result.score > 0
-              ? `Nice work — ${result.score} points.`
-              : 'Attempt recorded. Worth another go at this one.'}
-          </p>
-          {(result.learnerFeedback || result.explanation) && (
-            <p className="mt-1 text-body">{result.learnerFeedback ?? result.explanation}</p>
-          )}
-          <p className="mt-2 text-sm text-muted">Taking you to your results…</p>
-        </div>
+          <span
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-cg ${
+              result.score > 0 ? 'bg-ok/10 text-ok' : 'bg-warn/10 text-warn'
+            }`}
+          >
+            {result.score > 0 ? (
+              <CircleCheck size={18} strokeWidth={2.2} aria-hidden />
+            ) : (
+              <Info size={18} strokeWidth={2.2} aria-hidden />
+            )}
+          </span>
+
+          <div>
+            <p className={`font-bold ${result.score > 0 ? 'text-ok' : 'text-warn'}`}>
+              {result.score > 0
+                ? `Nice work — ${result.score} points.`
+                : 'Attempt recorded. Worth another go at this one.'}
+            </p>
+            {(result.learnerFeedback || result.explanation) && (
+              <p className="mt-1 text-body">
+                {result.learnerFeedback ?? result.explanation}
+              </p>
+            )}
+            <p className="mt-2 flex items-center gap-1.5 text-sm text-muted">
+              <Loader2 size={13} className="animate-spin" aria-hidden />
+              Taking you to your results…
+            </p>
+          </div>
+        </Card>
       )}
     </div>
   );

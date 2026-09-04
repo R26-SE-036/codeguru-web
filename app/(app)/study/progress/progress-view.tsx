@@ -10,9 +10,21 @@ import {
   RadarChart,
   ResponsiveContainer,
 } from 'recharts';
+import { ArrowLeft, Layers, Target, TrendingUp, Trophy, TriangleAlert } from 'lucide-react';
+
 import { ApiError, api } from '@/lib/api';
 import { useThemeColors } from '@/lib/theme';
 import { formatConcept } from '@/lib/vocabulary';
+import {
+  Badge,
+  Card,
+  EmptyState,
+  Meter,
+  PageHeader,
+  SectionTitle,
+  Stat,
+  buttonClass,
+} from '@/components/ui';
 
 /**
  * Ported from Study-Guider StudentDashboard.jsx.
@@ -98,50 +110,112 @@ export function ProgressView() {
     }));
   }, [attempts]);
 
-  if (loading) return <p className="text-muted">Loading your progress…</p>;
+  /**
+   * Both headline numbers are per CONCEPT, not per attempt, and both read from
+   * radarData for that reason: it is already deduplicated to the best attempt.
+   * Counting rows instead would let one concept quizzed five times count five
+   * times, and "average best" would sag toward whoever retried the most.
+   */
+  const masteredCount = useMemo(
+    () => radarData.filter((entry) => entry.A >= 70).length,
+    [radarData],
+  );
+
+  const averageBest = useMemo(() => {
+    if (!radarData.length) return 0;
+    return Math.round(radarData.reduce((sum, entry) => sum + entry.A, 0) / radarData.length);
+  }, [radarData]);
+
+  if (loading) {
+    return (
+      <div className="space-y-8">
+        <div className="cg-skeleton h-24 w-full" />
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div className="cg-skeleton h-28" />
+          <div className="cg-skeleton h-28" />
+          <div className="cg-skeleton h-28" />
+        </div>
+        <div className="cg-skeleton h-80 w-full" />
+      </div>
+    );
+  }
 
   if (error) {
     return (
-      <div className="space-y-4">
-        <p className="rounded-cg bg-danger-soft px-4 py-3 text-danger">{error}</p>
-        <Link href="/study" className="inline-flex text-accent hover:underline">
+      <Card className="px-6 py-12 text-center">
+        <span className="mx-auto grid h-12 w-12 place-items-center rounded-cg-lg bg-danger/10 text-danger">
+          <TriangleAlert size={22} strokeWidth={2} aria-hidden />
+        </span>
+        <h1 className="mt-4 text-lg font-bold text-ink">Progress unavailable</h1>
+        <p className="mx-auto mt-2 max-w-md text-sm text-body">{error}</p>
+        <Link
+          href="/study"
+          className={buttonClass({ variant: 'secondary', className: 'mt-6' })}
+        >
+          <ArrowLeft size={16} strokeWidth={2.2} aria-hidden />
           Back to your lessons
         </Link>
-      </div>
+      </Card>
     );
   }
 
   return (
     <div className="space-y-8">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold text-ink">Your progress</h1>
-          <p className="mt-1 text-body">Every quiz you have taken, by concept.</p>
-        </div>
-        <Link
-          href="/study"
-          className="rounded-cg border border-line px-4 py-2 text-body transition hover:bg-card-alt"
-        >
-          Back to lessons
-        </Link>
-      </header>
+      <PageHeader
+        eyebrow="Study"
+        title="Your progress"
+        lead="Every quiz you have taken, by concept. The chart plots your best score for each."
+        icon={TrendingUp}
+        tone="text-hue-study"
+        toneBg="bg-hue-study/10"
+        actions={
+          <Link href="/study" className={buttonClass({ variant: 'secondary' })}>
+            <ArrowLeft size={16} strokeWidth={2.2} aria-hidden />
+            Back to lessons
+          </Link>
+        }
+      />
 
       {radarData.length === 0 ? (
-        <div className="rounded-cg border border-line bg-card px-4 py-6 text-center">
-          <p className="text-ink">No quiz attempts yet.</p>
-          <p className="mt-1 text-sm text-muted">
-            Work through a lesson and take its quiz, and your mastery will show up here.
-          </p>
-        </div>
+        <EmptyState icon={TrendingUp} title="No quiz attempts yet">
+          Work through a lesson and take its quiz, and your mastery will show up here.
+        </EmptyState>
       ) : (
         <>
+          <section className="grid gap-4 sm:grid-cols-3">
+            <Stat
+              label="Concepts attempted"
+              value={radarData.length}
+              icon={Layers}
+              tone="text-hue-study"
+              toneBg="bg-hue-study/10"
+            />
+            <Stat
+              label="Mastered"
+              value={masteredCount}
+              hint={`of ${radarData.length} concepts`}
+              icon={Trophy}
+              tone="text-ok"
+              toneBg="bg-ok/10"
+            />
+            <Stat
+              label="Average best"
+              value={`${averageBest}%`}
+              hint="Across every concept"
+              icon={Target}
+              tone="text-accent"
+              toneBg="bg-accent/10"
+            />
+          </section>
+
           {/*
             Three concepts is the minimum for a radar chart to read as a shape
             rather than a line or a triangle collapsed on itself. Below that,
             the table alone is clearer than a misleading polygon.
           */}
           {radarData.length >= 3 && (
-            <section className="rounded-cg border border-line bg-card p-4">
+            <Card as="section" className="p-5">
+              <SectionTitle hint="Best score per concept">Where you are strong</SectionTitle>
               <div className="h-80">
                 <ResponsiveContainer width="100%" height="100%">
                   <RadarChart data={radarData} outerRadius="72%">
@@ -165,33 +239,50 @@ export function ProgressView() {
                   </RadarChart>
                 </ResponsiveContainer>
               </div>
-            </section>
+            </Card>
           )}
 
           <section>
-            <h2 className="mb-3 text-lg font-medium text-ink">Attempts</h2>
-            <ul className="divide-y divide-line rounded-cg border border-line bg-card">
-              {attempts?.map((attempt, position) => (
-                <li
-                  key={`${attempt.concept}-${attempt.last_updated}-${position}`}
-                  className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-3"
-                >
-                  <span className="text-ink">{formatConcept(attempt.concept)}</span>
-                  <span className="text-sm text-muted">
-                    {attempt.score}/{attempt.total} · {Math.round(attempt.percentage)}%
-                  </span>
-                  <span
-                    className={`rounded-cg px-2 py-0.5 text-xs ${
-                      attempt.status === 'MASTERED'
-                        ? 'bg-ok/10 text-ok'
-                        : 'bg-warn/10 text-warn'
-                    }`}
+            <SectionTitle hint={`${attempts?.length ?? 0} recorded`}>
+              Every attempt
+            </SectionTitle>
+
+            <Card className="divide-y divide-line overflow-hidden">
+              {attempts?.map((attempt, position) => {
+                const mastered = attempt.status === 'MASTERED';
+                const percent = Math.round(attempt.percentage);
+
+                return (
+                  <div
+                    key={`${attempt.concept}-${attempt.last_updated}-${position}`}
+                    className="px-5 py-4"
                   >
-                    {attempt.status === 'MASTERED' ? 'mastered' : 'needs review'}
-                  </span>
-                </li>
-              ))}
-            </ul>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <span className="font-medium text-ink">
+                        {formatConcept(attempt.concept)}
+                      </span>
+
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm tabular-nums text-muted">
+                          {attempt.score}/{attempt.total} · {percent}%
+                        </span>
+                        <Badge tone={mastered ? 'ok' : 'warn'}>
+                          {mastered ? 'Mastered' : 'Needs review'}
+                        </Badge>
+                      </div>
+                    </div>
+
+                    <div className="mt-2.5">
+                      <Meter
+                        value={percent}
+                        tone={mastered ? 'bg-ok' : 'bg-warn'}
+                        label={`${formatConcept(attempt.concept)} score`}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </Card>
           </section>
         </>
       )}
