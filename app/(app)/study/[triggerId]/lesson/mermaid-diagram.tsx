@@ -16,6 +16,53 @@ import { useEffect, useId, useRef, useState } from 'react';
  * 2. It touches `document` at import time, so it cannot be imported on the
  *    server. The parent loads this file with `dynamic(..., { ssr: false })`.
  */
+/**
+ * Make a generated diagram parseable.
+ *
+ * The diagram is written by a language model, and a model writing prose into a
+ * node label produces this constantly:
+ *
+ *     graph TD
+ *       A[Start Switch (e.g., dayOfWeek = 3)] --> B[...]
+ *
+ * Unquoted parentheses inside a square-bracket label are a syntax error -
+ * Mermaid reports `Expecting 'SQE' ... got 'PS'` and renders nothing, so the
+ * student loses the whole diagram over a pair of brackets. Quoting the label
+ * makes any punctuation literal, which is what Mermaid's own docs recommend
+ * for exactly this.
+ *
+ * Applied to `[...]` and `{...}` labels only. Round `(...)` nodes are left
+ * alone deliberately: telling a node's closing paren from a paren inside its
+ * text needs balanced-delimiter matching, and a regex that gets that wrong
+ * would corrupt diagrams that currently parse.
+ */
+export function quoteNodeLabels(chart: string): string {
+  // Anything outside this set is safer quoted. Quoting a label that did not
+  // need it changes nothing about how it renders.
+  const safe = /^[\w\s.,'\-/=<>+*!?%&:;]+$/;
+
+  const quote = (label: string) =>
+    // Mermaid has no backslash escape inside a quoted label; `#quot;` is its
+    // entity syntax and the only way to get a literal double quote through.
+    `"${label.trim().replace(/"/g, '#quot;')}"`;
+
+  return (
+    chart
+      // A fenced block occasionally survives the model's JSON, and mermaid
+      // will not parse the fence.
+      .replace(/^\s*```(?:mermaid)?\s*/i, '')
+      .replace(/\s*```\s*$/i, '')
+      // `id[label]` and `id{label}`. The identifier prefix is what keeps this
+      // off edge labels (|like this|), which have no id before them.
+      .replace(/([A-Za-z0-9_]+)\[([^\[\]"]+)\]/g, (match, id, label) =>
+        safe.test(label) ? match : `${id}[${quote(label)}]`,
+      )
+      .replace(/([A-Za-z0-9_]+)\{([^{}"]+)\}/g, (match, id, label) =>
+        safe.test(label) ? match : `${id}{${quote(label)}}`,
+      )
+  );
+}
+
 export default function MermaidDiagram({ chart }: { chart: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
@@ -53,13 +100,15 @@ export default function MermaidDiagram({ chart }: { chart: string }) {
           },
         });
 
-        const { svg } = await mermaid.render(`mermaid-${id}`, chart);
+        const { svg } = await mermaid.render(`mermaid-${id}`, quoteNodeLabels(chart));
         if (live && containerRef.current) containerRef.current.innerHTML = svg;
       } catch (error) {
         // A malformed diagram is a content problem, not a page problem. The
         // lesson around it is still worth reading, so fail to a note rather
-        // than taking the route down.
-        console.warn('Could not render the lesson diagram:', error);
+        // than taking the route down. The raw chart is logged alongside the
+        // error because the error alone names a token, not the line that
+        // produced it.
+        console.warn('Could not render the lesson diagram:', error, { chart });
         if (live) setFailed(true);
       }
     })();

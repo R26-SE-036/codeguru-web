@@ -12,7 +12,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { SESSION_COOKIE, unsealSession } from '@/lib/session';
+import {
+  SESSION_COOKIE,
+  cookieOptions,
+  sealSession,
+  unsealSession,
+} from '@/lib/session';
+import { exchangeForPairPath } from '@/lib/code-coach';
 import { credentialKind, isServiceKey, tokenFor, upstreamUrl } from '@/lib/upstream';
 
 /** Hop-by-hop and body-framing headers must not be forwarded. */
@@ -45,16 +51,43 @@ async function proxy(
     return NextResponse.json({ detail: 'Not signed in.' }, { status: 401 });
   }
 
-  const token = tokenFor(service, session);
+  let token = tokenFor(service, session);
+
+  /*
+   * Only reachable for PairPath, whose token is exchanged rather than issued.
+   *
+   * It used to 503 here and stop. That was right about the cause but wrong
+   * about the remedy: the exchange happened once, at login, so a student who
+   * signed in while PairPath was down stayed broken for the life of their
+   * session even after it came back. Every restart of that service during
+   * development produced the same three 503s on /pair, and the only fix was to
+   * sign out and back in.
+   *
+   * The platform token in the session is all the exchange needs, so it is
+   * retried here instead. On success the repaired session is re-sealed onto
+   * the response, and the next request already has the token.
+   */
+  let refreshedCookie: string | null = null;
+
+  if (!token && service === 'pair') {
+    const exchanged = await exchangeForPairPath(session.accessToken);
+
+    if (exchanged) {
+      session.pairPathToken = exchanged.token;
+      session.pairPathUserId = exchanged.userId;
+      token = exchanged.token;
+      refreshedCookie = await sealSession(session);
+    }
+  }
+
   if (!token) {
-    // Only reachable for PairPath, when the token exchange failed at login.
-    // 503, not 401: the student's platform session is fine, and telling them
-    // to sign in again would not fix it.
+    // 503, not 401: the student's platform session is fine, and sending them
+    // to sign in again would not fix an upstream that is down.
     return NextResponse.json(
       {
         detail:
           `Not connected to ${service}. The ${credentialKind(service)} token ` +
-          `could not be obtained at sign-in - the service may be unavailable.`,
+          `could not be obtained - the service may be unavailable.`,
       },
       { status: 503 },
     );
@@ -105,11 +138,20 @@ async function proxy(
     }
   });
 
-  return new NextResponse(upstream.body, {
+  const response = new NextResponse(upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,
     headers: responseHeaders,
   });
+
+  // The upstream's own Set-Cookie headers are dropped above; this is ours, and
+  // it is set last so it cannot be clobbered by that loop. Only present when
+  // the exchange above repaired the session.
+  if (refreshedCookie) {
+    response.cookies.set(SESSION_COOKIE, refreshedCookie, cookieOptions());
+  }
+
+  return response;
 }
 
 export const GET = proxy;
