@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowLeft,
+  BookOpen,
   CircleCheck,
   Gamepad2,
   GripVertical,
@@ -34,7 +35,15 @@ interface Question {
   conceptTag: string;
   difficulty: string;
   codeLines: string[];
-  hints?: string[];
+  /**
+   * How many hints exist, NOT the hints themselves.
+   *
+   * They used to arrive with the question, so a student could read all three in
+   * the network tab and still be recorded as having used none - while the score
+   * charged 15 points each based on a count this component reported about
+   * itself. They come one at a time from POST /game/hint now.
+   */
+  hintCount?: number;
   /** CodeFix only: the line the student has to rewrite. */
   buggyLineIndex?: number;
   /** Added by the backend: which engine chose the difficulty. */
@@ -47,6 +56,16 @@ interface SubmitResult {
   score: number;
   learnerFeedback?: string;
   explanation?: string;
+  /**
+   * FR-10. What the student needs beyond another round, when anything.
+   * `keep_going` means nothing is wrong and is not worth interrupting them for.
+   */
+  support?: {
+    action: 'review_lesson' | 'extra_practice' | 'slow_down' | 'keep_going';
+    headline: string;
+    detail: string;
+  } | null;
+  nextRecommendedConcept?: string | null;
 }
 
 type Answer = number | number[] | string | null;
@@ -69,6 +88,10 @@ interface CheckState {
 interface State {
   question: Question | null;
   answer: Answer;
+  /** The hints the server has actually handed over, in order. */
+  hints: string[];
+  hintsRemaining: number;
+  takingHint: boolean;
   hintLevel: number;
   check: CheckState | null;
   checking: boolean;
@@ -81,7 +104,8 @@ interface State {
 type Action =
   | { type: 'INIT'; question: Question }
   | { type: 'ANSWER'; answer: Answer }
-  | { type: 'HINT' }
+  | { type: 'HINT_PENDING' }
+  | { type: 'HINT'; hint: string; taken: number; remaining: number }
   | { type: 'CHECKING' }
   | { type: 'CHECKED'; check: CheckState }
   | { type: 'TICK' }
@@ -113,6 +137,9 @@ function reducer(state: State, action: Action): State {
         phase: 'playing',
         error: null,
         check: null,
+        hints: [],
+        hintLevel: 0,
+        hintsRemaining: action.question.hintCount ?? 0,
       };
     }
     case 'ANSWER':
@@ -123,8 +150,25 @@ function reducer(state: State, action: Action): State {
       return { ...state, checking: true };
     case 'CHECKED':
       return { ...state, checking: false, check: action.check };
-    case 'HINT':
-      return { ...state, hintLevel: Math.min(state.hintLevel + 1, 3) };
+    case 'HINT_PENDING':
+      return { ...state, takingHint: true };
+    case 'HINT': {
+      // Deduplicated: asking again for a hint already taken returns the same
+      // text and must not add a second copy or a second point of cost.
+      const hints = state.hints.includes(action.hint)
+        ? state.hints
+        : [...state.hints, action.hint];
+
+      return {
+        ...state,
+        takingHint: false,
+        hints,
+        // The server's count, not a local increment - it is the one the score
+        // is computed from.
+        hintLevel: action.taken,
+        hintsRemaining: action.remaining,
+      };
+    }
     case 'TICK':
       return { ...state, seconds: state.seconds + 1 };
     case 'SUBMIT':
@@ -160,6 +204,9 @@ export function GamePlayer({
   const [state, dispatch] = useReducer(reducer, {
     question: null,
     answer: null,
+    hints: [],
+    hintsRemaining: 0,
+    takingHint: false,
     hintLevel: 0,
     check: null,
     checking: false,
@@ -249,6 +296,52 @@ export function GamePlayer({
   }, [state.answer]);
 
   /**
+   * Ask for the next hint.
+   *
+   * A request rather than a local counter, because the hints are not here: the
+   * question arrives with only `hintCount`. The server hands over the next one
+   * the student has not seen and records it, which is what makes `hintUsage` a
+   * measurement rather than something this component asserts about itself.
+   *
+   * Never throws. A student who cannot get a hint should still be able to play.
+   */
+  async function takeHint() {
+    if (!state.question || state.takingHint || state.hintsRemaining <= 0) return;
+
+    dispatch({ type: 'HINT_PENDING' });
+
+    try {
+      const result = await api.post<{
+        hint: string | null;
+        hintsTaken: number;
+        hintsRemaining: number;
+      }>('play', '/game/hint', {
+        userId,
+        learningSessionId: learningSessionId.current,
+        questionId: state.question.id,
+      });
+
+      if (result.hint) {
+        dispatch({
+          type: 'HINT',
+          hint: result.hint,
+          taken: result.hintsTaken,
+          remaining: result.hintsRemaining,
+        });
+      } else {
+        dispatch({ type: 'HINT', hint: '', taken: state.hintLevel, remaining: 0 });
+      }
+    } catch {
+      dispatch({
+        type: 'HINT',
+        hint: 'Could not fetch a hint just now.',
+        taken: state.hintLevel,
+        remaining: state.hintsRemaining,
+      });
+    }
+  }
+
+  /**
    * CodeFix: ask the server whether this line is right, without ending the game.
    *
    * The verdict is not computed here because the answer is not here - the
@@ -269,8 +362,8 @@ export function GamePlayer({
     try {
       const verdict = await api.post<{
         correct: boolean;
-        hint: string | null;
         wrongAttempts: number;
+        hintsRemaining: number;
       }>('play', '/game/check', {
         userId,
         learningSessionId: learningSessionId.current,
@@ -282,7 +375,10 @@ export function GamePlayer({
         type: 'CHECKED',
         check: {
           correct: verdict.correct,
-          hint: verdict.hint ?? null,
+          // No hint arrives here any more. Checking is free; a hint costs 15
+          // points, so it has to be asked for rather than handed over because
+          // an attempt happened to be wrong.
+          hint: null,
           wrongAttempts: verdict.wrongAttempts ?? 0,
         },
       });
@@ -588,14 +684,30 @@ export function GamePlayer({
         </div>
       </Card>
 
-      {state.hintLevel > 0 && question.hints && (
+      {state.hints.length > 0 && (
         <Card className="flex gap-4 border-l-4 border-l-warn p-5">
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-cg bg-warn/10 text-warn">
             <Lightbulb size={18} strokeWidth={2.2} aria-hidden />
           </span>
           <div>
-            <p className="font-bold text-ink">Hint {state.hintLevel} of 3</p>
-            <p className="mt-1 text-body">{question.hints[state.hintLevel - 1]}</p>
+            <p className="font-bold text-ink">
+              {state.hints.length === 1
+                ? 'Hint'
+                : `Hints (${state.hints.length} of ${question.hintCount ?? state.hints.length})`}
+            </p>
+            {/* Every hint taken stays on screen. They are ordered from general
+                to explicit, so the earlier ones are the ones worth re-reading -
+                and the student has paid for them. */}
+            <ul className="mt-1 space-y-1.5 text-body">
+              {state.hints.map((hint, index) => (
+                <li key={index} className="flex gap-2">
+                  <span className="text-faint-nontext" aria-hidden>
+                    {index + 1}.
+                  </span>
+                  <span>{hint}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         </Card>
       )}
@@ -605,15 +717,19 @@ export function GamePlayer({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
-          onClick={() => dispatch({ type: 'HINT' })}
-          disabled={state.hintLevel >= 3 || state.phase !== 'playing'}
+          onClick={takeHint}
+          disabled={
+            state.takingHint || state.hintsRemaining <= 0 || state.phase !== 'playing'
+          }
           className={buttonClass({ variant: 'secondary' })}
         >
           <Lightbulb size={16} strokeWidth={2.2} aria-hidden />
-          {/* The count is shown from the first hint on, because each one costs
-              15 points and a student should be able to see the running cost
-              before deciding to take another. */}
-          Use a hint{state.hintLevel > 0 ? ` (${state.hintLevel}/3)` : ''}
+          {/* The running cost is shown from the first hint on, because each one
+              is 15 points and a student should see what they have spent before
+              deciding to spend more. */}
+          {state.hintsRemaining <= 0 && state.hintLevel > 0
+            ? `No hints left (${state.hintLevel} used)`
+            : `Use a hint${state.hintLevel > 0 ? ` (${state.hintLevel} used)` : ''}`}
         </button>
 
         <div className="flex items-center gap-3">
@@ -697,7 +813,35 @@ export function GamePlayer({
                 {result.learnerFeedback ?? result.explanation}
               </p>
             )}
-            <p className="mt-2 flex items-center gap-1.5 text-sm text-muted">
+            {/* Support, when there is something to act on. `keep_going` is
+                deliberately not shown - telling a student who is doing fine
+                that they are doing fine is noise, and it would train them to
+                skip the panel on the round where it matters. */}
+            {result.support && result.support.action !== 'keep_going' && (
+              <div className="mt-3 rounded-cg border border-warn/30 bg-warn/10 p-3.5 text-left">
+                <p className="flex items-center gap-2 text-sm font-bold text-ink">
+                  <Lightbulb size={15} strokeWidth={2.4} aria-hidden className="text-warn" />
+                  {result.support.headline}
+                </p>
+                <p className="mt-1 text-sm text-body">{result.support.detail}</p>
+
+                {result.support.action === 'review_lesson' && (
+                  <Link
+                    href={`/study${
+                      result.nextRecommendedConcept
+                        ? `?concept=${encodeURIComponent(result.nextRecommendedConcept)}`
+                        : ''
+                    }`}
+                    className={buttonClass({ variant: 'secondary', size: 'sm', className: 'mt-3' })}
+                  >
+                    <BookOpen size={15} strokeWidth={2.2} aria-hidden />
+                    Open the lesson
+                  </Link>
+                )}
+              </div>
+            )}
+
+            <p className="mt-3 flex items-center gap-1.5 text-sm text-muted">
               <Loader2 size={13} className="animate-spin" aria-hidden />
               Taking you to your results…
             </p>
