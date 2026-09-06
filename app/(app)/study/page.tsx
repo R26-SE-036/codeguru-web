@@ -42,15 +42,44 @@ const STRUGGLE_TONE = {
   low: 'accent',
 } as const;
 
-export default async function StudyPage() {
+export default async function StudyPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ concept?: string }>;
+}) {
   const session = await getSession();
-  const data = await serverFetch<{ triggers?: Trigger[] }>(
-    'study',
-    '/remediation/triggers',
-    session,
-  );
+  const [data, params] = await Promise.all([
+    serverFetch<{ triggers?: Trigger[] }>('study', '/remediation/triggers', session),
+    searchParams,
+  ]);
 
   const triggers = data?.triggers ?? [];
+
+  /*
+   * ?concept= arrives from the editor extension's "Study this concept" button.
+   *
+   * It carries a concept tag rather than a trigger id, because the extension
+   * does not have one: triggers are raised by Code Coach on its own schedule,
+   * from repeat counts the editor never sees, so a diagnostic on screen may
+   * have no trigger behind it yet.
+   *
+   * So the tag is used to REORDER, never to filter. Filtering would show an
+   * empty page to a student who clicked through for a concept that has not
+   * escalated yet, which reads as "your lesson is gone" rather than "there is
+   * no lesson for that one".
+   */
+  const focus = params.concept?.trim().toLowerCase();
+  const ordered = focus
+    ? [...triggers].sort((a, b) => {
+        const aMatch = a.concept_tag?.toLowerCase() === focus ? 0 : 1;
+        const bMatch = b.concept_tag?.toLowerCase() === focus ? 0 : 1;
+        return aMatch - bMatch;
+      })
+    : triggers;
+
+  const focusMatched = focus
+    ? triggers.some((t) => t.concept_tag?.toLowerCase() === focus)
+    : false;
 
   return (
     <div className="space-y-8">
@@ -73,6 +102,31 @@ export default async function StudyPage() {
       />
 
       {/*
+        Arrived from the editor for a concept with no lesson waiting. Saying so
+        is the whole point: without it the student clicks "Study this concept",
+        lands on a list that does not mention it, and reasonably concludes the
+        button is broken. It is not - the concept simply has not been repeated
+        often enough to earn a lesson yet.
+      */}
+      {focus && data !== null && !focusMatched && (
+        <Card className="flex gap-3 border-l-4 border-l-hue-study p-4">
+          <Sparkles
+            size={18}
+            strokeWidth={2.2}
+            aria-hidden
+            className="mt-0.5 shrink-0 text-hue-study"
+          />
+          <p className="text-sm text-body">
+            <span className="font-semibold text-ink">
+              No lesson for {formatConcept(focus)} yet.
+            </span>{' '}
+            A concept earns one after the same mistake shows up more than once —
+            keep going and it will appear here. Anything already waiting is below.
+          </p>
+        </Card>
+      )}
+
+      {/*
         Null means the service did not answer. An empty array means it did and
         there is genuinely nothing to work on - which is good news. Rendering
         the same thing for both would tell a student they are all caught up at
@@ -80,22 +134,31 @@ export default async function StudyPage() {
       */}
       {data === null ? (
         <Unavailable what="Your lessons" />
-      ) : triggers.length === 0 ? (
+      ) : ordered.length === 0 ? (
         <EmptyState icon={BookOpenCheck} title="Nothing to work on right now">
           Keep writing Java in your editor. If the same mistake shows up more than
           once, a lesson for it appears here automatically.
         </EmptyState>
       ) : (
         <ul className="grid gap-4 md:grid-cols-2">
-          {triggers.map((trigger) => {
+          {ordered.map((trigger) => {
             const tone =
               STRUGGLE_TONE[
                 (trigger.struggle_level?.toLowerCase() as keyof typeof STRUGGLE_TONE) ??
                   'low'
               ] ?? 'accent';
 
+            const isFocused = Boolean(
+              focus && trigger.concept_tag?.toLowerCase() === focus,
+            );
+
             return (
-              <li key={trigger.trigger_id} className="cg-card cg-card-hover flex flex-col p-5">
+              <li
+                key={trigger.trigger_id}
+                className={`cg-card cg-card-hover flex flex-col p-5 ${
+                  isFocused ? 'ring-2 ring-hue-study/50' : ''
+                }`}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <span className="grid h-10 w-10 shrink-0 place-items-center rounded-cg bg-hue-study/10 text-hue-study">
                     <Sparkles size={19} strokeWidth={2.1} aria-hidden />
