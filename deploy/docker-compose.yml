@@ -140,12 +140,23 @@ services:
       ML_SERVICE_URL: http://gamification-ml:5000
     depends_on: [code-coach, gamification-ml]
 
+  # Serves the difficulty model, and can refit it from the game sessions in
+  # Mongo. It had no environment at all, which meant two things silently: the
+  # trainer could not reach the database (it falls back to reading backend/.env,
+  # which is deliberately not in the image), and RETRAIN_SECRET was unset - so
+  # POST /retrain answered 403 to everyone, including whoever was meant to use
+  # it. Both are inherited from the backend's .env rather than restated here.
   gamification-ml:
     <<: *restart
     build:
-      context: ../../adaptive-gamification-engine/ml-service
+      context: ../../adaptive-gamification-engine/backend/ml
       dockerfile: Dockerfile
     image: gamification-ml:local
+    env_file: [../../adaptive-gamification-engine/backend/.env]
+    environment:
+      # The backend's .env also carries PORT=3002 for the Node service, which
+      # would move this one off the port gamification-api is pointed at.
+      PORT: "5000"
 
 # The code runner is NOT here. It is a Lambda container image, and running it
 # beside everything else would put student-submitted Java on the same host as
