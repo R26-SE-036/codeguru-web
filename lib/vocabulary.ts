@@ -6,7 +6,7 @@
  *
  *   game type    Code Coach: bug_hunt, loop_tracer, condition_debug,
  *                            debug_challenge
- *                Engine:     BugHunt, DragDrop, CodeTrace
+ *                Engine:     BugHunt, DragDrop, CodeTrace, CodeFix
  *
  *   difficulty   Code Coach: beginner, intermediate, advanced
  *                Engine:     Easy, Medium, Hard
@@ -25,8 +25,13 @@
  * ==============================================================
  */
 
-/** The three games this engine actually implements. */
-export const GAME_TYPES = ['BugHunt', 'DragDrop', 'CodeTrace'] as const;
+/**
+ * The games this engine implements. Must match GAME_TYPES in the engine's
+ * config/constants.js - a type listed here but not there is served as a
+ * fallback game of a different kind, which is the drift this file exists to
+ * prevent.
+ */
+export const GAME_TYPES = ['BugHunt', 'DragDrop', 'CodeTrace', 'CodeFix'] as const;
 export type GameType = (typeof GAME_TYPES)[number];
 
 /** Code Coach's names for a kind of practice, mapped to what we implement. */
@@ -38,6 +43,11 @@ const GAME_TYPE_ALIASES: Record<string, GameType> = {
   code_trace: 'CodeTrace',
   drag_drop: 'DragDrop',
   reorder: 'DragDrop',
+  // Code Coach has no name for CodeFix - it is this engine's own game - so
+  // only the engine's spelling resolves. Kept here so the intent is explicit
+  // rather than an omission someone later reads as a bug.
+  code_fix: 'CodeFix',
+  fix_the_bug: 'CodeFix',
 };
 
 export const DIFFICULTIES = ['Easy', 'Medium', 'Hard'] as const;

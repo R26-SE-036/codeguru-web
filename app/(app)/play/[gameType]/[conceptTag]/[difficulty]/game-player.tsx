@@ -35,6 +35,8 @@ interface Question {
   difficulty: string;
   codeLines: string[];
   hints?: string[];
+  /** CodeFix only: the line the student has to rewrite. */
+  buggyLineIndex?: number;
   /** Added by the backend: which engine chose the difficulty. */
   difficultyChosenBy?: string;
   difficultyConfidence?: number | null;
@@ -49,10 +51,27 @@ interface SubmitResult {
 
 type Answer = number | number[] | string | null;
 
+/**
+ * CodeFix only. The verdict on the last checked attempt, and the hint that came
+ * back with it.
+ *
+ * Checking is a server call, not a local comparison: the answer never reaches
+ * the browser (see the backend's /game/check), which is also what makes the
+ * error count a measurement rather than something this component reports about
+ * itself.
+ */
+interface CheckState {
+  correct: boolean;
+  hint: string | null;
+  wrongAttempts: number;
+}
+
 interface State {
   question: Question | null;
   answer: Answer;
   hintLevel: number;
+  check: CheckState | null;
+  checking: boolean;
   attemptCount: number;
   seconds: number;
   phase: 'loading' | 'playing' | 'submitted';
@@ -63,6 +82,8 @@ type Action =
   | { type: 'INIT'; question: Question }
   | { type: 'ANSWER'; answer: Answer }
   | { type: 'HINT' }
+  | { type: 'CHECKING' }
+  | { type: 'CHECKED'; check: CheckState }
   | { type: 'TICK' }
   | { type: 'SUBMIT' }
   | { type: 'ERROR'; message: string };
@@ -74,16 +95,34 @@ function reducer(state: State, action: Action): State {
       // current ordering, CodeTrace as an empty string, BugHunt as nothing
       // selected. Getting this wrong disables Submit forever, because the
       // button is gated on `answer !== null`.
+      // CodeFix starts with the broken line already in the box, trimmed of its
+      // indentation. The task is to correct a line, not to retype it, and
+      // leading whitespace is not part of the answer - the grader ignores it.
       const answer: Answer =
         action.question.gameType === 'DragDrop'
           ? action.question.codeLines.map((_, index) => index)
           : action.question.gameType === 'CodeTrace'
             ? ''
-            : null;
-      return { ...state, question: action.question, answer, phase: 'playing', error: null };
+            : action.question.gameType === 'CodeFix'
+              ? (action.question.codeLines[action.question.buggyLineIndex ?? 0] ?? '').trim()
+              : null;
+      return {
+        ...state,
+        question: action.question,
+        answer,
+        phase: 'playing',
+        error: null,
+        check: null,
+      };
     }
     case 'ANSWER':
-      return { ...state, answer: action.answer };
+      // Editing clears the previous verdict. Leaving a red "not right" under a
+      // line the student has since changed reads as a judgement on the new text.
+      return { ...state, answer: action.answer, check: null };
+    case 'CHECKING':
+      return { ...state, checking: true };
+    case 'CHECKED':
+      return { ...state, checking: false, check: action.check };
     case 'HINT':
       return { ...state, hintLevel: Math.min(state.hintLevel + 1, 3) };
     case 'TICK':
@@ -122,6 +161,8 @@ export function GamePlayer({
     question: null,
     answer: null,
     hintLevel: 0,
+    check: null,
+    checking: false,
     attemptCount: 1,
     seconds: 0,
     phase: 'loading',
@@ -206,6 +247,56 @@ export function GamePlayer({
     dragTo.current = null;
     dispatch({ type: 'ANSWER', answer: next });
   }, [state.answer]);
+
+  /**
+   * CodeFix: ask the server whether this line is right, without ending the game.
+   *
+   * The verdict is not computed here because the answer is not here - the
+   * question arrives with `correctAnswer` stripped. That is deliberate twice
+   * over: unlimited local checking would leak the answer to anyone reading the
+   * network tab, and every check being a server call is what lets the engine
+   * COUNT the wrong ones. `errorCount` used to be `isCorrect ? 0 : 1`, so the
+   * proposal's own `errorCount > 5` rule could never fire.
+   *
+   * A correct check finalises the round immediately - having got it right,
+   * being made to press a second button says nothing.
+   */
+  async function check() {
+    if (!state.question || typeof state.answer !== 'string' || !state.answer.trim()) return;
+
+    dispatch({ type: 'CHECKING' });
+
+    try {
+      const verdict = await api.post<{
+        correct: boolean;
+        hint: string | null;
+        wrongAttempts: number;
+      }>('play', '/game/check', {
+        userId,
+        learningSessionId: learningSessionId.current,
+        questionId: state.question.id,
+        attempt: state.answer,
+      });
+
+      dispatch({
+        type: 'CHECKED',
+        check: {
+          correct: verdict.correct,
+          hint: verdict.hint ?? null,
+          wrongAttempts: verdict.wrongAttempts ?? 0,
+        },
+      });
+
+      if (verdict.correct) await submit();
+    } catch {
+      // Checking is a convenience; failing it must not strand the student. They
+      // can still submit, which grades the same answer the same way.
+      dispatch({
+        type: 'CHECKED',
+        check: { correct: false, hint: 'Could not reach the checker. You can still submit.', wrongAttempts: 0 },
+      });
+    }
+  }
 
   async function submit() {
     if (state.answer === null || !state.question) return;
@@ -340,6 +431,7 @@ export function GamePlayer({
           {activeGameType === 'BugHunt' && 'Find the line with the mistake'}
           {activeGameType === 'DragDrop' && 'Drag the lines into a correct order'}
           {activeGameType === 'CodeTrace' && 'Trace the code and give the final output'}
+          {activeGameType === 'CodeFix' && 'Rewrite the highlighted line so the code is correct'}
         </h2>
 
         <div className="overflow-x-auto bg-inset p-4 font-mono text-sm">
@@ -410,6 +502,89 @@ export function GamePlayer({
               </div>
             </>
           )}
+
+          {activeGameType === 'CodeFix' && (
+            <>
+              {question.codeLines.map((line, index) => {
+                const isTarget = index === question.buggyLineIndex;
+                return (
+                  <div
+                    key={index}
+                    className={`flex gap-4 rounded-cg-sm px-2.5 py-1.5 ${
+                      isTarget ? 'bg-danger/10 ring-1 ring-inset ring-danger/30' : ''
+                    }`}
+                  >
+                    <span className="w-5 select-none text-right text-faint-nontext">
+                      {index + 1}
+                    </span>
+                    <span className="whitespace-pre">{line}</span>
+                  </div>
+                );
+              })}
+
+              <div className="mt-5 border-t border-line pt-4">
+                <label
+                  htmlFor="fix"
+                  className="mb-2 block font-sans text-sm font-semibold text-ink"
+                >
+                  Line {(question.buggyLineIndex ?? 0) + 1}, corrected
+                </label>
+                <textarea
+                  id="fix"
+                  rows={2}
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  value={typeof state.answer === 'string' ? state.answer : ''}
+                  onChange={(event) => dispatch({ type: 'ANSWER', answer: event.target.value })}
+                  onKeyDown={(event) => {
+                    // Enter checks; Shift+Enter still breaks the line, because a
+                    // fix can legitimately span two.
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault();
+                      if (!state.checking && state.phase === 'playing') void check();
+                    }
+                  }}
+                  className="cg-focusable w-full resize-y rounded-cg border border-line bg-card px-3.5 py-2.5 font-mono text-ink placeholder:font-sans placeholder:text-faint-nontext hover:border-line-strong focus-visible:border-accent"
+                />
+                <p className="mt-1.5 font-sans text-xs text-muted">
+                  Spacing does not matter. Everything else does.
+                </p>
+
+                {state.check && !state.check.correct && (
+                  <div className="mt-3 flex gap-3 rounded-cg border border-danger/30 bg-danger/10 p-3.5">
+                    <TriangleAlert
+                      size={17}
+                      strokeWidth={2.2}
+                      aria-hidden
+                      className="mt-0.5 shrink-0 text-danger"
+                    />
+                    <div className="font-sans text-sm">
+                      <p className="font-semibold text-ink">
+                        Not right yet
+                        {state.check.wrongAttempts > 1
+                          ? ` — ${state.check.wrongAttempts} tries so far`
+                          : ''}
+                      </p>
+                      {state.check.hint && <p className="mt-1 text-body">{state.check.hint}</p>}
+                    </div>
+                  </div>
+                )}
+
+                {state.check?.correct && (
+                  <div className="mt-3 flex items-center gap-3 rounded-cg border border-ok/30 bg-ok/10 p-3.5 font-sans text-sm">
+                    <CircleCheck
+                      size={17}
+                      strokeWidth={2.2}
+                      aria-hidden
+                      className="shrink-0 text-ok"
+                    />
+                    <p className="font-semibold text-ink">That is the fix.</p>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </Card>
 
@@ -442,15 +617,48 @@ export function GamePlayer({
         </button>
 
         <div className="flex items-center gap-3">
-          <span className="text-sm text-muted">Attempt {state.attemptCount}</span>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={state.answer === null || state.phase !== 'playing'}
-            className={buttonClass()}
-          >
-            Submit answer
-          </button>
+          <span className="text-sm text-muted">
+            {/* For CodeFix the count comes from the server, which has graded
+                every attempt. For the others it is the local counter. */}
+            {activeGameType === 'CodeFix' && state.check
+              ? `${state.check.wrongAttempts} wrong so far`
+              : `Attempt ${state.attemptCount}`}
+          </span>
+
+          {activeGameType === 'CodeFix' ? (
+            <button
+              type="button"
+              onClick={check}
+              disabled={
+                state.checking ||
+                state.phase !== 'playing' ||
+                typeof state.answer !== 'string' ||
+                !state.answer.trim()
+              }
+              className={buttonClass()}
+            >
+              {state.checking ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" aria-hidden />
+                  Checking…
+                </>
+              ) : (
+                <>
+                  <CircleCheck size={16} strokeWidth={2.2} aria-hidden />
+                  Check my fix
+                </>
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={submit}
+              disabled={state.answer === null || state.phase !== 'playing'}
+              className={buttonClass()}
+            >
+              Submit answer
+            </button>
+          )}
         </div>
       </div>
 
