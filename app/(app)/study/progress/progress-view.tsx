@@ -61,6 +61,18 @@ import {
 // the dashboard cannot drift from them the way the writer once did.
 const PASS_MARK_PERCENT = 70;
 
+// How each curriculum state looks. A table rather than nested ternaries in
+// the markup, so adding a state is one entry instead of four edits.
+//
+// "locked" is descriptive, not a restriction - nothing stops a student opening
+// it. It answers "why is this not the thing to do next".
+const CONCEPT_STATE = {
+  mastered: { label: 'Mastered', tone: 'ok' as const, bar: 'bg-ok', card: 'ring-1 ring-ok/25' },
+  in_progress: { label: 'In progress', tone: 'warn' as const, bar: 'bg-warn', card: '' },
+  ready: { label: 'Ready', tone: 'accent' as const, bar: 'bg-accent', card: '' },
+  locked: { label: 'Locked', tone: 'neutral' as const, bar: 'bg-faint-nontext', card: 'opacity-70' },
+} as const;
+
 // Module-level constant, not an inline literal: a fresh object each render is a
 // new dependency each render, and useThemeColors' effect would never settle.
 const CHART_TOKENS = {
@@ -85,6 +97,25 @@ interface Attempt {
   seconds_on_lesson?: number | null;
 }
 
+interface CurriculumConcept {
+  concept: string;
+  state: 'mastered' | 'in_progress' | 'ready' | 'locked';
+  prerequisites: string[];
+  unmet_prerequisites: string[];
+  probability_known: number | null;
+  predicted_correct: number | null;
+  attempts: number;
+  observations: number;
+  average_percentage: number | null;
+}
+
+interface Curriculum {
+  concepts: CurriculumConcept[];
+  total: number;
+  counts: { mastered: number; in_progress: number; ready: number; locked: number };
+  suggested_next: string | null;
+}
+
 interface Mastery {
   concept: string;
   probability_known: number;
@@ -100,6 +131,7 @@ export function ProgressView() {
 
   const [attempts, setAttempts] = useState<Attempt[] | null>(null);
   const [mastery, setMastery] = useState<Mastery[]>([]);
+  const [curriculum, setCurriculum] = useState<Curriculum | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -111,16 +143,20 @@ export function ProgressView() {
         // Both together. Mastery failing on its own must not cost the student
         // their attempt history, so it degrades to an empty list rather than
         // taking the page down - the charts that need it simply do not render.
-        const [history, estimates] = await Promise.all([
+        const [history, estimates, map] = await Promise.all([
           api.get<{ success: boolean; data?: Attempt[] }>('study', '/progress/me'),
           api
             .get<{ success: boolean; data?: Mastery[] }>('study', '/progress/me/mastery')
             .catch(() => ({ success: false, data: [] as Mastery[] })),
+          api
+            .get<{ success: boolean; data?: Curriculum }>('study', '/progress/me/curriculum')
+            .catch(() => ({ success: false, data: undefined })),
         ]);
 
         if (!live) return;
         setAttempts(history.data ?? []);
         setMastery(estimates.data ?? []);
+        setCurriculum(map.data ?? null);
       } catch (err) {
         if (!live) return;
         setError(
@@ -203,6 +239,10 @@ export function ProgressView() {
       }));
   }, [attempts]);
 
+  // The size of the course, not the size of this student's history. Falls back
+  // to 0 when the curriculum could not be loaded, and every use guards on that.
+  const totalConcepts = curriculum?.total ?? 0;
+
   const masteredCount = useMemo(
     () => mastery.filter((m) => m.mastered).length,
     [mastery],
@@ -279,47 +319,139 @@ export function ProgressView() {
         }
       />
 
+      {/* ── Headline numbers ──────────────────────────────────────────────
+          Outside the hasHistory gate, and counted against the whole course.
+          "Concepts attempted 1" says nothing on its own; "1 of 14" is a
+          position in a syllabus, which is the question being asked. */}
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat
+          label="Concepts attempted"
+          value={radarData.length}
+          hint={totalConcepts ? `of ${totalConcepts} in the course` : undefined}
+          icon={Layers}
+          tone="text-hue-study"
+          toneBg="bg-hue-study/10"
+        />
+        <Stat
+          label="Mastered"
+          value={masteredCount}
+          hint={
+            totalConcepts
+              ? `of ${totalConcepts} · knowledge tracing`
+              : `of ${radarData.length} · knowledge tracing`
+          }
+          icon={Trophy}
+          tone="text-ok"
+          toneBg="bg-ok/10"
+        />
+        <Stat
+          label="Average best"
+          value={`${averageBest}%`}
+          hint={hasHistory ? 'Across attempted concepts' : 'Nothing attempted yet'}
+          icon={Target}
+          tone="text-accent"
+          toneBg="bg-accent/10"
+        />
+        <Stat
+          label="Time on lessons"
+          value={formatDuration(totalStudySeconds)}
+          hint={totalStudySeconds ? 'Reading before quizzes' : 'Not measured yet'}
+          icon={Clock3}
+          tone="text-hue-insight"
+          toneBg="bg-hue-insight/10"
+        />
+      </section>
+
+      {/* ── The whole curriculum ────────────────────────────────────────
+          Rendered outside the hasHistory gate on purpose. This is the part
+          that has something to say on a brand-new account: without it the
+          page shows one row and reads as broken, when the truth is simply
+          that there are fourteen concepts and the student has met one. */}
+      {curriculum && (
+        <section>
+          <SectionTitle
+            hint={`${curriculum.counts.mastered} of ${curriculum.total} mastered`}
+          >
+            Your learning map
+          </SectionTitle>
+
+          {curriculum.suggested_next && (
+            <Card className="mb-4 flex flex-wrap items-center justify-between gap-3 border-l-4 border-l-hue-study p-4">
+              <p className="flex items-center gap-3 text-body">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-cg bg-hue-study/10 text-hue-study">
+                  <Target size={17} strokeWidth={2.2} aria-hidden />
+                </span>
+                <span>
+                  <span className="font-semibold text-ink">Start here: </span>
+                  {formatConcept(curriculum.suggested_next)}
+                  <span className="text-muted"> — nothing it depends on is outstanding.</span>
+                </span>
+              </p>
+            </Card>
+          )}
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {curriculum.concepts.map((item) => {
+              const style = CONCEPT_STATE[item.state];
+              const known =
+                item.probability_known === null
+                  ? null
+                  : Math.round(item.probability_known * 100);
+
+              return (
+                <Card key={item.concept} className={`p-4 ${style.card}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="font-semibold text-ink">
+                      {formatConcept(item.concept)}
+                    </span>
+                    <Badge tone={style.tone}>{style.label}</Badge>
+                  </div>
+
+                  {known === null ? (
+                    // Not "0%". An untouched concept and one failed twice are
+                    // different situations and must not look the same.
+                    <p className="mt-2 text-xs text-muted">Not attempted yet</p>
+                  ) : (
+                    <>
+                      <div className="mt-3">
+                        <Meter value={known} tone={style.bar} label={item.concept} />
+                      </div>
+                      <p className="mt-1.5 text-xs text-muted">
+                        <span className="font-semibold tabular-nums text-body">{known}%</span>{' '}
+                        known · {item.attempts} attempt{item.attempts === 1 ? '' : 's'}
+                      </p>
+                    </>
+                  )}
+
+                  {/* Not shown once mastered. The graph still lists an unmet
+                      prerequisite there - the student passed it out of order,
+                      which is allowed - but printing "Needs first" under a
+                      Mastered badge reads as outstanding work when there is
+                      none. On the other states it is the useful part: it says
+                      why this one is hard, or why it is not next. */}
+                  {item.state !== 'mastered' && item.unmet_prerequisites.length > 0 && (
+                    <p className="mt-2 text-xs text-muted">
+                      Needs first:{' '}
+                      <span className="text-body">
+                        {item.unmet_prerequisites.map(formatConcept).join(', ')}
+                      </span>
+                    </p>
+                  )}
+                </Card>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {!hasHistory ? (
         <EmptyState icon={TrendingUp} title="No quiz attempts yet">
-          Work through a lesson and take its quiz, and your mastery will show up here.
+          {curriculum?.suggested_next
+            ? `Open the lesson for ${formatConcept(curriculum.suggested_next)} and take its quiz. The charts here fill in from your first attempt.`
+            : 'Work through a lesson and take its quiz, and your mastery will show up here.'}
         </EmptyState>
       ) : (
         <>
-          {/* ── Headline numbers ────────────────────────────────────────── */}
-          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Stat
-              label="Concepts attempted"
-              value={radarData.length}
-              icon={Layers}
-              tone="text-hue-study"
-              toneBg="bg-hue-study/10"
-            />
-            <Stat
-              label="Mastered"
-              value={masteredCount}
-              hint={`of ${radarData.length} · knowledge tracing`}
-              icon={Trophy}
-              tone="text-ok"
-              toneBg="bg-ok/10"
-            />
-            <Stat
-              label="Average best"
-              value={`${averageBest}%`}
-              hint="Across every concept"
-              icon={Target}
-              tone="text-accent"
-              toneBg="bg-accent/10"
-            />
-            <Stat
-              label="Time on lessons"
-              value={formatDuration(totalStudySeconds)}
-              hint={totalStudySeconds ? 'Reading before quizzes' : 'Not measured yet'}
-              icon={Clock3}
-              tone="text-hue-insight"
-              toneBg="bg-hue-insight/10"
-            />
-          </section>
-
           {/* ── What the model believes ─────────────────────────────────── */}
           {mastery.length > 0 && (
             <section>
