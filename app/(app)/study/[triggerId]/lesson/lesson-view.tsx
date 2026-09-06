@@ -10,9 +10,11 @@ import {
   ExternalLink,
   GitBranch,
   Lightbulb,
+  Check,
   ListChecks,
   PlayCircle,
   TriangleAlert,
+  X,
 } from 'lucide-react';
 
 import { ApiError, api } from '@/lib/api';
@@ -23,6 +25,63 @@ import { Badge, Card, buttonClass } from '@/components/ui';
 // so it cannot run during SSR. Loaded only on the client, and only when a
 // lesson actually has a diagram.
 const MermaidDiagram = dynamic(() => import('./mermaid-diagram'), { ssr: false });
+
+/**
+ * One half of the before/after example.
+ *
+ * Colour is not the only signal. The heading says "Don't do this" / "Do this
+ * instead" in words, each panel carries an icon, and the two are separated by a
+ * rule - so the distinction survives a colour-blind reader, a greyscale print,
+ * and the single-column layout on a phone where the panels stack rather than
+ * sit side by side.
+ *
+ * The tint is deliberately faint. A saturated red block behind monospace text
+ * is harder to read than the code it is meant to be highlighting, which was the
+ * original complaint about this section.
+ */
+function CodePanel({
+  tone,
+  label,
+  caption,
+  code,
+}: {
+  tone: 'bad' | 'good';
+  label: string;
+  caption: string;
+  code: string;
+}) {
+  const bad = tone === 'bad';
+  const Icon = bad ? X : Check;
+
+  return (
+    <section className={bad ? 'bg-danger/[0.06]' : 'bg-ok/[0.06]'}>
+      <header
+        className={`flex items-center gap-2 px-5 py-2.5 text-sm font-semibold ${
+          bad ? 'text-danger' : 'text-ok'
+        }`}
+      >
+        <span
+          aria-hidden
+          className={`grid h-5 w-5 shrink-0 place-items-center rounded-full ${
+            bad ? 'bg-danger/15' : 'bg-ok/15'
+          }`}
+        >
+          <Icon size={12} strokeWidth={3} />
+        </span>
+        {label}
+        <span className="ml-auto font-sans text-xs font-normal text-muted">{caption}</span>
+      </header>
+
+      <pre
+        className={`overflow-x-auto border-t px-5 pb-5 pt-4 font-mono text-[13px] leading-relaxed text-ink ${
+          bad ? 'border-danger/15' : 'border-ok/15'
+        }`}
+      >
+        {code}
+      </pre>
+    </section>
+  );
+}
 
 /**
  * The lesson is GENERATED, not fetched: POST /api/struggle/detect runs the
@@ -49,6 +108,15 @@ interface LessonContent {
   issue?: string;
   explanation?: string;
   hint?: string;
+  /** The broken code on its own. Preferred over `exampleCode`. */
+  incorrectCode?: string;
+  /** The same code, fixed. */
+  correctCode?: string;
+  /**
+   * The pre-2026-09 shape: one blob with the broken version commented out.
+   * Still read so a lesson cached before the split renders, and so a blob the
+   * backend could not divide is shown rather than dropped.
+   */
   exampleCode?: string;
   videoUrl?: string;
   referenceLink?: string;
@@ -189,6 +257,11 @@ export function LessonView({ triggerId }: { triggerId: string }) {
     );
   }
 
+  // Both halves, or neither. One without the other is not a comparison, and
+  // showing a lone "Don't do this" block with no fix beside it would be worse
+  // than the single blob it replaced.
+  const hasSplitExample = Boolean(lesson?.incorrectCode && lesson?.correctCode);
+
   return (
     <article className="mx-auto max-w-3xl space-y-6">
       <Link
@@ -250,7 +323,16 @@ export function LessonView({ triggerId }: { triggerId: string }) {
         </Card>
       )}
 
-      {lesson?.exampleCode && (
+{/* ── The example ──────────────────────────────────────────────────────
+          Two blocks, labelled and colour-coded, rather than one grey block with
+          the broken version commented out.
+
+          The old rendering styled the mistake as a comment - the part the
+          student most needs to look at was the part greyed out, and nothing
+          said which half was which. The backend now returns the two separately;
+          `exampleCode` is the fallback for a lesson cached before that change
+          which could not be split. */}
+      {(hasSplitExample || lesson?.exampleCode) && (
         <Card className="overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-3">
             <h2 className="font-bold text-ink">Example</h2>
@@ -266,9 +348,27 @@ export function LessonView({ triggerId }: { triggerId: string }) {
                 : 'An illustration. Your own code is never stored'}
             </span>
           </div>
-          <pre className="overflow-x-auto bg-inset p-5 font-mono text-sm leading-relaxed text-ink">
-            {lesson.exampleCode}
-          </pre>
+
+          {hasSplitExample ? (
+            <div className="grid gap-px bg-line md:grid-cols-2">
+              <CodePanel
+                tone="bad"
+                label="Don't do this"
+                caption="The mistake"
+                code={lesson!.incorrectCode!}
+              />
+              <CodePanel
+                tone="good"
+                label="Do this instead"
+                caption="The fix"
+                code={lesson!.correctCode!}
+              />
+            </div>
+          ) : (
+            <pre className="overflow-x-auto bg-inset p-5 font-mono text-sm leading-relaxed text-ink">
+              {lesson?.exampleCode}
+            </pre>
+          )}
         </Card>
       )}
 
