@@ -7,6 +7,7 @@ import { ArrowRight, Loader2 } from 'lucide-react';
 
 import { Field, FormError } from '@/components/field';
 import { buttonClass } from '@/components/ui';
+import { completeExtensionHandoff } from '@/lib/extension-handoff';
 
 /**
  * The platform's one login page.
@@ -30,6 +31,9 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Kept true through the loopback navigation so the button does not flick
+  // back to "Sign in" while the browser is leaving the page.
+  const [handoffDone, setHandoffDone] = useState(false);
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -54,6 +58,17 @@ function LoginForm() {
         return;
       }
 
+      // The VS Code extension opens this page with a loopback redirect_uri and
+      // waits for a one-time code. Handled before the normal redirect, because
+      // for that flow finishing here would leave the editor waiting until it
+      // timed out - which is exactly what it did before this existed.
+      const handoff = await completeExtensionHandoff(params.get('redirect_uri'));
+      if (handoff) {
+        setHandoffDone(true);
+        window.location.href = handoff;
+        return;
+      }
+
       // Only a path from our own query string is ever followed, and only one
       // starting with a single slash - '//evil.com' is a protocol-relative URL
       // that a browser will happily treat as absolute.
@@ -67,7 +82,7 @@ function LoginForm() {
     } catch {
       setError('Could not reach the server. Please try again.');
     } finally {
-      setBusy(false);
+      if (!handoffDone) setBusy(false);
     }
   }
 

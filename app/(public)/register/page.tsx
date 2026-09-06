@@ -1,21 +1,24 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowRight, Loader2 } from 'lucide-react';
 
 import { Field, FormError } from '@/components/field';
 import { buttonClass } from '@/components/ui';
+import { completeExtensionHandoff } from '@/lib/extension-handoff';
 
-export default function RegisterPage() {
+function RegisterForm() {
   const router = useRouter();
+  const params = useSearchParams();
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [handoffDone, setHandoffDone] = useState(false);
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -42,12 +45,21 @@ export default function RegisterPage() {
         return;
       }
 
+      // Same loopback handoff as sign-in: the extension offers Create
+      // Account too, and it waits on the same port for the same code.
+      const handoff = await completeExtensionHandoff(params.get('redirect_uri'));
+      if (handoff) {
+        setHandoffDone(true);
+        window.location.href = handoff;
+        return;
+      }
+
       router.replace('/');
       router.refresh();
     } catch {
       setError('Could not reach the server. Please try again.');
     } finally {
-      setBusy(false);
+      if (!handoffDone) setBusy(false);
     }
   }
 
@@ -126,5 +138,15 @@ export default function RegisterPage() {
         </Link>
       </p>
     </>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    // useSearchParams needs a Suspense boundary, or the whole route opts out
+    // of static rendering at build time.
+    <Suspense fallback={<div className="h-[420px]" />}>
+      <RegisterForm />
+    </Suspense>
   );
 }
