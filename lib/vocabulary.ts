@@ -9,7 +9,8 @@
  *                Engine:     BugHunt, DragDrop, CodeTrace, CodeFix
  *
  *   difficulty   Code Coach: beginner, intermediate, advanced
- *                Engine:     Easy, Medium, Hard
+ *                Engine:     Beginner, Elementary, Intermediate, Advanced, Expert
+ *                            (was Easy / Medium / Hard until the five-level change)
  *
  * That mapping previously existed in three places - the engine's
  * config/constants.js, its routes/gamification.js, and its frontend config.js -
@@ -50,16 +51,31 @@ const GAME_TYPE_ALIASES: Record<string, GameType> = {
   fix_the_bug: 'CodeFix',
 };
 
-export const DIFFICULTIES = ['Easy', 'Medium', 'Hard'] as const;
+/**
+ * The five levels, easiest first. Must match DIFFICULTY_LEVELS in the engine's
+ * config/constants.js, in the same order - the order is what progression walks
+ * and what the model's ordinal feature is built from.
+ */
+export const DIFFICULTIES = [
+  'Beginner',
+  'Elementary',
+  'Intermediate',
+  'Advanced',
+  'Expert',
+] as const;
 export type Difficulty = (typeof DIFFICULTIES)[number];
 
 const DIFFICULTY_ALIASES: Record<string, Difficulty> = {
-  beginner: 'Easy',
-  easy: 'Easy',
-  intermediate: 'Medium',
-  medium: 'Medium',
-  advanced: 'Hard',
-  hard: 'Hard',
+  beginner: 'Beginner',
+  elementary: 'Elementary',
+  intermediate: 'Intermediate',
+  advanced: 'Advanced',
+  expert: 'Expert',
+  // The retired three-level scale, still present in Code Coach's
+  // recommendations and in any link saved before the change.
+  easy: 'Beginner',
+  medium: 'Intermediate',
+  hard: 'Advanced',
 };
 
 /** Resolve either vocabulary to a game type, or null if unrecognised. */
