@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowLeft,
+  ArrowRight,
   BookOpen,
   CircleCheck,
   Gamepad2,
@@ -88,6 +89,49 @@ interface SubmitResult {
 type Answer = number | number[] | string | null;
 
 /**
+ * How many questions one visit to a concept serves.
+ *
+ * ===================== WHY A RUN AND NOT ONE QUESTION =====================
+ * A visit used to be a single question: play it, get a score, get pushed to a
+ * results page. That is a thin experience, and it also starved almost every
+ * adaptive mechanism this engine has, because all of them are defined over a
+ * SEQUENCE of rounds and a student was only ever giving them one:
+ *
+ *   * FR-08's dual-threshold rule needs two consecutive sessions at a level
+ *     before it moves anybody. At one round per visit a student had to come
+ *     back three separate times to see the level change once.
+ *   * FR-10's support rules read a window of the last five rounds. That window
+ *     spanned days, so "three failures in a row - go and read the lesson"
+ *     arrived long after the student had stopped struggling.
+ *   * Exploration is 15%, about one round in seven. A student playing one round
+ *     a visit could easily never meet one, and those rows are the only ones in
+ *     the corpus free of the policy's own influence.
+ *   * And the difficulty model gets one decision and one outcome per visit, so
+ *     the 100 rows calibration.js needs before it will report anything were 100
+ *     separate visits away.
+ *
+ * Each question in the run is a full round: a fresh call to the game endpoint,
+ * so the difficulty is re-decided from history that now includes the round just
+ * played, the format is re-chosen, and a new adaptation decision is recorded.
+ * The engine adapts WITHIN a sitting rather than only between them, which is
+ * what the proposal describes and what a student can actually notice.
+ *
+ * Five is a judgement: long enough for the progression rule to move somebody,
+ * short enough to finish in one sitting. The student can stop after any round.
+ */
+const QUESTIONS_PER_RUN = 5;
+
+/** One finished round, kept for the run summary. */
+interface RunEntry {
+  score: number;
+  gameType: string;
+  difficulty: string;
+  seconds: number;
+  hintLevel: number;
+  attemptCount: number;
+}
+
+/**
  * The verdict on the last checked attempt.
  *
  * Checking is a server call, not a local comparison: the answer never reaches
@@ -136,6 +180,7 @@ interface State {
 }
 
 type Action =
+  | { type: 'LOADING' }
   | { type: 'INIT'; question: Question }
   | { type: 'ANSWER'; answer: Answer }
   | { type: 'HINT_PENDING' }
@@ -148,6 +193,10 @@ type Action =
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
+    case 'LOADING':
+      // The question is cleared so the skeleton shows rather than the round
+      // just finished, which would otherwise sit there looking playable.
+      return { ...state, phase: 'loading', question: null, answer: null, check: null, error: null };
     case 'INIT': {
       // The initial answer differs per interaction: DragDrop starts as the
       // current ordering, CodeTrace as an empty string, BugHunt as nothing
@@ -174,6 +223,14 @@ function reducer(state: State, action: Action): State {
         hints: [],
         hintLevel: 0,
         hintsRemaining: action.question.hintCount ?? 0,
+        // Reset explicitly, because INIT now runs between the questions of a
+        // run as well as at the start of one. Carrying the previous round's
+        // clock or attempt count into the next would report the wrong numbers
+        // to the engine - and they are the numbers the score is computed from.
+        seconds: 0,
+        attemptCount: 1,
+        checking: false,
+        takingHint: false,
       };
     }
     case 'ANSWER':
@@ -258,6 +315,15 @@ export function GamePlayer({
     error: null,
   });
   const [result, setResult] = useState<SubmitResult | null>(null);
+
+  /**
+   * The rounds finished so far in this run.
+   *
+   * Held here rather than in the reducer because it survives INIT - the reducer
+   * resets per question, and this is the one thing that must not.
+   */
+  const [run, setRun] = useState<RunEntry[]>([]);
+  const [loadingNext, setLoadingNext] = useState(false);
   const learningSessionId = useRef<string | null>(null);
 
   const dragFrom = useRef<number | null>(null);
@@ -376,6 +442,74 @@ export function GamePlayer({
     const timer = setInterval(() => dispatch({ type: 'TICK' }), 1000);
     return () => clearInterval(timer);
   }, [state.phase]);
+
+  /**
+   * Fetch the next question of the run.
+   *
+   * A FULL round, not a second question drawn from the first decision: the game
+   * endpoint re-decides the difficulty from history that now includes the round
+   * just played, re-chooses the format, avoids the questions this student has
+   * recently seen, and records a new adaptation decision. That is the whole
+   * point of a run - the engine adapts between the questions of one sitting,
+   * where a student can actually notice it doing so.
+   *
+   * The learning session is deliberately NOT recreated. One run is one sitting,
+   * and it is what groups these rounds together for Code Coach.
+   */
+  const nextQuestion = useCallback(async () => {
+    setLoadingNext(true);
+    setResult(null);
+    dispatch({ type: 'LOADING' });
+
+    try {
+      const question = await api.get<Question>(
+        'play',
+        `/game/${userId}/${gameType}/${conceptTag}/${difficulty}`,
+      );
+      dispatch({ type: 'INIT', question });
+    } catch (error) {
+      dispatch({
+        type: 'ERROR',
+        message:
+          error instanceof ApiError && error.isUnavailable
+            ? 'Practice is unavailable right now. Please try again shortly.'
+            : 'We could not load the next question.',
+      });
+    } finally {
+      setLoadingNext(false);
+    }
+  }, [userId, gameType, conceptTag, difficulty]);
+
+  /**
+   * End the run and show the summary.
+   *
+   * `entries` is passed in rather than read from state because the caller has
+   * just appended to it and a state update is not visible to the same tick -
+   * reading `run` here would silently drop the final round from the summary.
+   */
+  const finishRun = useCallback(
+    (entries: RunEntry[], last: SubmitResult) => {
+      sessionStorage.setItem(
+        'codeguru.lastGameResult',
+        JSON.stringify({
+          result: last,
+          conceptTag,
+          gameType: entries[entries.length - 1]?.gameType ?? activeGameType,
+          difficulty: entries[entries.length - 1]?.difficulty ?? activeDifficulty,
+          attemptCount: entries[entries.length - 1]?.attemptCount ?? 1,
+          hintLevel: entries[entries.length - 1]?.hintLevel ?? 0,
+          seconds: entries[entries.length - 1]?.seconds ?? 0,
+          // The whole run. The results page shows the summary when there is
+          // more than one round and falls back to the single-round view
+          // otherwise, so an interrupted run still reads correctly.
+          run: entries,
+        }),
+      );
+
+      router.push('/play/results');
+    },
+    [conceptTag, activeGameType, activeDifficulty, router],
+  );
 
   const onDrop = useCallback(() => {
     if (!Array.isArray(state.answer) || dragFrom.current === null || dragTo.current === null) {
@@ -566,20 +700,30 @@ export function GamePlayer({
           .catch((error) => console.warn('Could not record the result in Code Coach:', error));
       }
 
-      sessionStorage.setItem(
-        'codeguru.lastGameResult',
-        JSON.stringify({
-          result: submitted,
-          conceptTag,
+      const entries = [
+        ...run,
+        {
+          score: submitted.score,
           gameType: activeGameType,
           difficulty: activeDifficulty,
-          attemptCount: state.attemptCount,
-          hintLevel: state.hintLevel,
           seconds: state.seconds,
-        }),
-      );
+          hintLevel: state.hintLevel,
+          attemptCount: state.attemptCount,
+        },
+      ];
+      setRun(entries);
 
-      setTimeout(() => router.push('/play/results'), 2500);
+      // The last round of the run goes straight to the summary. Earlier ones
+      // stop here and wait: the student reads their score and any support
+      // message, then presses Next when they are ready.
+      //
+      // This used to be an unconditional setTimeout(..., 2500) - a two and a
+      // half second window to read feedback before being navigated away from
+      // it, which is not long enough for the one round in the run where the
+      // feedback actually matters.
+      if (entries.length >= QUESTIONS_PER_RUN) {
+        setTimeout(() => finishRun(entries, submitted), 2000);
+      }
     } catch {
       dispatch({ type: 'ERROR', message: 'We could not save this attempt. Please try again.' });
     }
@@ -639,6 +783,21 @@ export function GamePlayer({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Where they are in the run. Shown from the start rather than only
+              once a round is done, because "question 1 of 5" is what tells a
+              student this is a set and not a single question they can leave. */}
+          <Badge tone="neutral">
+            {/* While a finished round is still on screen the student is looking
+                at question N, not N+1 - the run has been appended to but they
+                have not moved on yet. Counting ahead here labelled the code
+                they were still reading with the next question's number. */}
+            Question{' '}
+            {Math.min(
+              state.phase === 'submitted' ? run.length : run.length + 1,
+              QUESTIONS_PER_RUN,
+            )}{' '}
+            of {QUESTIONS_PER_RUN}
+          </Badge>
           <Badge tone="neutral">{activeDifficulty}</Badge>
           {/* tabular-nums so a ticking clock does not jitter the layout every
               time the digit width changes. */}
@@ -1027,10 +1186,49 @@ export function GamePlayer({
               </div>
             )}
 
-            <p className="mt-3 flex items-center gap-1.5 text-sm text-muted">
-              <Loader2 size={13} className="animate-spin" aria-hidden />
-              Taking you to your results…
-            </p>
+            {run.length >= QUESTIONS_PER_RUN ? (
+              <p className="mt-3 flex items-center gap-1.5 text-sm text-muted">
+                <Loader2 size={13} className="animate-spin" aria-hidden />
+                Taking you to your results…
+              </p>
+            ) : (
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={nextQuestion}
+                  disabled={loadingNext}
+                  className={buttonClass()}
+                >
+                  {loadingNext ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" aria-hidden />
+                      Loading…
+                    </>
+                  ) : (
+                    <>
+                      Next question
+                      <ArrowRight size={16} strokeWidth={2.2} aria-hidden />
+                    </>
+                  )}
+                </button>
+
+                {/* Stopping early is a first-class option, not an escape. A
+                    student who has read a "go back to the lesson" message
+                    should be able to act on it immediately, and the rounds
+                    they did play are already recorded. */}
+                <button
+                  type="button"
+                  onClick={() => finishRun(run, result)}
+                  className={buttonClass({ variant: 'secondary' })}
+                >
+                  Finish here
+                </button>
+
+                <span className="text-sm text-muted">
+                  {QUESTIONS_PER_RUN - run.length} left in this set
+                </span>
+              </div>
+            )}
           </div>
         </Card>
       )}

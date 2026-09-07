@@ -27,6 +27,16 @@ import { Badge, Card, Meter, buttonClass } from '@/components/ui';
  * localStorage because it should not outlive the tab.
  */
 
+/** One finished round of a run. */
+interface RunEntry {
+  score: number;
+  gameType: string;
+  difficulty: string;
+  seconds: number;
+  hintLevel: number;
+  attemptCount: number;
+}
+
 interface StoredResult {
   result: { score: number; learnerFeedback?: string; explanation?: string };
   conceptTag: string;
@@ -35,6 +45,13 @@ interface StoredResult {
   attemptCount: number;
   hintLevel: number;
   seconds: number;
+
+  /**
+   * Every round of the run, oldest first. Optional: a result written by an
+   * older build, or read from a tab that started a run before this shipped,
+   * has none - and the single-round view below is still correct for it.
+   */
+  run?: RunEntry[];
 }
 
 export default function ResultsPage() {
@@ -80,7 +97,15 @@ export default function ResultsPage() {
     );
   }
 
-  const { score } = stored.result;
+  // A run of one is a round, and reads better as one.
+  const run = (stored.run ?? []).length > 1 ? stored.run! : null;
+
+  // For a run the headline is the AVERAGE, not the last round. The last round
+  // of five is not what the student just did, and leading with it would report
+  // a strong set as a failure whenever the final question happened to go badly.
+  const score = run
+    ? Math.round(run.reduce((total, entry) => total + entry.score, 0) / run.length)
+    : stored.result.score;
   const passed = score >= 70;
 
   return (
@@ -95,9 +120,12 @@ export default function ResultsPage() {
 
         <div className="relative">
           <div className="flex flex-wrap justify-center gap-2">
-            <Badge tone="accent">{formatGameType(stored.gameType)}</Badge>
+            {/* For a run the format and level varied by design - the engine
+                re-chose both between questions - so naming one of them would
+                be wrong. The concept is the thing the whole set was about. */}
+            {!run && <Badge tone="accent">{formatGameType(stored.gameType)}</Badge>}
             <Badge tone="neutral">{formatConcept(stored.conceptTag)}</Badge>
-            <Badge tone="neutral">{stored.difficulty}</Badge>
+            {!run && <Badge tone="neutral">{stored.difficulty}</Badge>}
           </div>
 
           <span
@@ -116,11 +144,19 @@ export default function ResultsPage() {
             {score}
           </p>
           <p className="mt-1 font-medium text-body">
-            {passed ? 'Solid work.' : 'Worth another go at this concept.'}
+            {run
+              ? `${passed ? 'Solid set.' : 'Worth another go at this concept.'} Average over ${run.length} questions.`
+              : passed
+                ? 'Solid work.'
+                : 'Worth another go at this concept.'}
           </p>
 
           <div className="mx-auto mt-6 max-w-xs">
-            <Meter value={score} tone={passed ? 'bg-ok' : 'bg-warn'} label="Round score" />
+            <Meter
+              value={score}
+              tone={passed ? 'bg-ok' : 'bg-warn'}
+              label={run ? 'Average score' : 'Round score'}
+            />
           </div>
         </div>
       </Card>
@@ -136,11 +172,78 @@ export default function ResultsPage() {
         </Card>
       )}
 
-      <dl className="grid grid-cols-3 gap-3">
-        <Stat icon={RotateCcw} label="Attempts" value={stored.attemptCount} />
-        <Stat icon={Lightbulb} label="Hints used" value={`${stored.hintLevel}/3`} />
-        <Stat icon={Clock3} label="Time" value={`${stored.seconds}s`} />
-      </dl>
+      {run ? (
+        <>
+          {/*
+            The run, round by round.
+
+            The AVERAGE is the headline rather than the last round's score,
+            because a set of five is what the student just did and one round of
+            it is not the story. The per-round list is kept underneath because
+            the shape matters as much as the mean: five steady rounds and a run
+            that started badly and recovered average the same and mean opposite
+            things.
+          */}
+          <Card className="p-5">
+            <div className="flex items-baseline justify-between">
+              <h2 className="font-bold text-ink">This set</h2>
+              <p className="text-sm text-muted">
+                {run.filter((entry) => entry.score >= 70).length} of {run.length} passed
+              </p>
+            </div>
+
+            <ul className="mt-4 space-y-2">
+              {run.map((entry, index) => (
+                <li key={index} className="flex items-center gap-3">
+                  <span className="w-5 shrink-0 text-right text-sm text-faint-nontext tabular-nums">
+                    {index + 1}
+                  </span>
+                  <span className="w-28 shrink-0 truncate text-sm text-body">
+                    {formatGameType(entry.gameType)}
+                  </span>
+                  <span className="w-24 shrink-0 truncate text-sm text-muted">
+                    {entry.difficulty}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <Meter
+                      value={entry.score}
+                      tone={entry.score >= 70 ? 'bg-ok' : 'bg-warn'}
+                      label={`Round ${index + 1} score`}
+                    />
+                  </span>
+                  <span className="w-10 shrink-0 text-right text-sm font-semibold tabular-nums text-ink">
+                    {entry.score}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+
+          <dl className="grid grid-cols-3 gap-3">
+            <Stat
+              icon={RotateCcw}
+              label="Attempts"
+              value={run.reduce((total, entry) => total + entry.attemptCount, 0)}
+            />
+            <Stat
+              icon={Lightbulb}
+              label="Hints used"
+              value={run.reduce((total, entry) => total + entry.hintLevel, 0)}
+            />
+            <Stat
+              icon={Clock3}
+              label="Time"
+              value={`${run.reduce((total, entry) => total + entry.seconds, 0)}s`}
+            />
+          </dl>
+        </>
+      ) : (
+        <dl className="grid grid-cols-3 gap-3">
+          <Stat icon={RotateCcw} label="Attempts" value={stored.attemptCount} />
+          <Stat icon={Lightbulb} label="Hints used" value={`${stored.hintLevel}/3`} />
+          <Stat icon={Clock3} label="Time" value={`${stored.seconds}s`} />
+        </dl>
+      )}
 
       <div className="flex flex-wrap justify-center gap-3">
         <Link href="/play" className={buttonClass({ size: 'lg' })}>
