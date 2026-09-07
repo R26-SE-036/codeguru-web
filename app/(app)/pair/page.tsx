@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, KeyRound, Loader2, Play, Users } from 'lucide-react';
+import { ArrowRight, BarChart3, BrainCircuit, History, KeyRound, Loader2, Play, Users } from 'lucide-react';
 
 import { ApiError, api } from '@/lib/api';
 import { FormError } from '@/components/field';
@@ -127,6 +127,24 @@ export default function PairPage() {
         icon={Users}
         tone="text-hue-pair"
         toneBg="bg-hue-pair/10"
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/pair/analytics"
+              className={buttonClass({ variant: 'secondary', size: 'sm' })}
+            >
+              <BarChart3 size={14} strokeWidth={2.2} aria-hidden />
+              Analytics
+            </Link>
+            <Link
+              href="/pair/sandbox"
+              className={buttonClass({ variant: 'secondary', size: 'sm' })}
+            >
+              <BrainCircuit size={14} strokeWidth={2.2} aria-hidden />
+              Model sandbox
+            </Link>
+          </div>
+        }
       />
 
       {error && <FormError>{error}</FormError>}
@@ -262,12 +280,14 @@ export default function PairPage() {
               const active = session.status === 'ACTIVE';
 
               return (
-                <Link
+                <div
                   key={session.id}
-                  href={active ? `/pair/${session.id}` : `/pair/${session.id}/results`}
-                  className="cg-focusable group flex flex-wrap items-center justify-between gap-3 px-5 py-4 transition hover:bg-card-alt"
+                  className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"
                 >
-                  <div className="min-w-0">
+                  <Link
+                    href={active ? `/pair/${session.id}` : `/pair/${session.id}/results`}
+                    className="cg-focusable group min-w-0 flex-1"
+                  >
                     <p className="font-semibold text-ink">
                       {session.question?.title ?? 'Pair session'}
                     </p>
@@ -277,22 +297,34 @@ export default function PairPage() {
                         {session.joinCode}
                       </span>
                     </p>
-                  </div>
+                  </Link>
 
                   <div className="flex items-center gap-3">
                     <Badge tone={active ? 'ok' : 'neutral'}>
                       {active ? 'Active' : 'Finished'}
                     </Badge>
-                    <span className="inline-flex items-center gap-1 text-sm font-semibold text-accent">
+
+                    <Link
+                      href={`/pair/${session.id}/history`}
+                      className="cg-focusable inline-flex items-center gap-1 rounded-cg-sm px-2 py-1 text-sm font-semibold text-muted transition hover:text-ink"
+                    >
+                      <History size={14} strokeWidth={2.2} aria-hidden />
+                      Record
+                    </Link>
+
+                    <Link
+                      href={active ? `/pair/${session.id}` : `/pair/${session.id}/results`}
+                      className="cg-focusable group inline-flex items-center gap-1 text-sm font-semibold text-accent"
+                    >
                       {active ? 'Rejoin' : 'Results'}
                       <ArrowRight
                         size={15}
                         aria-hidden
                         className="transition-transform duration-200 ease-cg group-hover:translate-x-0.5"
                       />
-                    </span>
+                    </Link>
                   </div>
-                </Link>
+                </div>
               );
             })}
           </Card>
