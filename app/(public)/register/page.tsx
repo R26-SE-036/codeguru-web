@@ -1,17 +1,24 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { ArrowRight, Loader2 } from 'lucide-react';
 
-export default function RegisterPage() {
+import { Field, FormError } from '@/components/field';
+import { buttonClass } from '@/components/ui';
+import { completeExtensionHandoff } from '@/lib/extension-handoff';
+
+function RegisterForm() {
   const router = useRouter();
+  const params = useSearchParams();
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [handoffDone, setHandoffDone] = useState(false);
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -29,12 +36,21 @@ export default function RegisterPage() {
       const body = await response.json().catch(() => null);
 
       if (!response.ok) {
-        // Code Coach's own text. For a 422 that is a per-field validation
+        // The upstream's own text. For a 422 that is a per-field validation
         // message ("password: String should have at least 8 characters"),
         // which is far more useful than a generic failure - and is only
         // readable because readError unpacks FastAPI's list-of-objects shape
-        // rather than stringifying it.
+        // rather than stringifying it into "[object Object]".
         setError(body?.detail ?? 'Could not create your account.');
+        return;
+      }
+
+      // Same loopback handoff as sign-in: the extension offers Create
+      // Account too, and it waits on the same port for the same code.
+      const handoff = await completeExtensionHandoff(params.get('redirect_uri'));
+      if (handoff) {
+        setHandoffDone(true);
+        window.location.href = handoff;
         return;
       }
 
@@ -43,92 +59,94 @@ export default function RegisterPage() {
     } catch {
       setError('Could not reach the server. Please try again.');
     } finally {
-      setBusy(false);
+      if (!handoffDone) setBusy(false);
     }
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <h1 className="text-2xl font-semibold text-ink">Create your account</h1>
-          <p className="mt-1 text-sm text-muted">
-            One account for the coach, your lessons, practice and pairing.
-          </p>
-        </div>
-
-        <div className="rounded-cg border border-line bg-card p-6">
-          <form onSubmit={onSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="fullName" className="mb-1.5 block text-sm font-medium text-ink">
-                Full name
-              </label>
-              <input
-                id="fullName"
-                autoComplete="name"
-                required
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className="w-full rounded-cg border border-line bg-card px-3 py-2 text-ink"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-ink">
-                Email
-              </label>
-              <input
-                id="email"
-                type="email"
-                autoComplete="username"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-cg border border-line bg-card px-3 py-2 text-ink placeholder:text-muted"
-                placeholder="you@example.com"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-ink">
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                autoComplete="new-password"
-                required
-                minLength={8}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-cg border border-line bg-card px-3 py-2 text-ink"
-              />
-              <p className="mt-1 text-xs text-muted">At least 8 characters.</p>
-            </div>
-
-            {error && (
-              <p role="alert" className="rounded-cg bg-danger-soft px-3 py-2 text-sm text-danger">
-                {error}
-              </p>
-            )}
-
-            <button
-              type="submit"
-              disabled={busy}
-              className="w-full rounded-cg bg-accent px-4 py-2.5 font-medium text-white transition hover:bg-accent-strong disabled:opacity-60"
-            >
-              {busy ? 'Creating…' : 'Create account'}
-            </button>
-
-            <p className="text-center text-sm text-muted">
-              Already have one?{' '}
-              <Link href="/login" className="text-accent hover:underline">
-                Sign in
-              </Link>
-            </p>
-          </form>
-        </div>
+    <>
+      <div className="mb-8">
+        <h1 className="text-3xl font-extrabold tracking-tight text-ink">
+          Create your account
+        </h1>
+        <p className="mt-2 text-body">
+          One account for your insights, lessons, practice and pairing.
+        </p>
       </div>
-    </main>
+
+      <form onSubmit={onSubmit} className="space-y-4">
+        <Field
+          label="Full name"
+          autoComplete="name"
+          required
+          autoFocus
+          value={fullName}
+          onChange={(event) => setFullName(event.target.value)}
+          placeholder="Ada Lovelace"
+        />
+
+        <Field
+          label="Email"
+          type="email"
+          autoComplete="email"
+          required
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          placeholder="you@example.com"
+        />
+
+        <Field
+          label="Password"
+          type="password"
+          autoComplete="new-password"
+          required
+          minLength={8}
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          placeholder="••••••••"
+          hint="At least 8 characters."
+        />
+
+        {error && <FormError>{error}</FormError>}
+
+        <button
+          type="submit"
+          disabled={busy}
+          className={buttonClass({ size: 'lg', className: 'w-full' })}
+        >
+          {busy ? (
+            <>
+              <Loader2 size={17} className="animate-spin" aria-hidden />
+              Creating your account…
+            </>
+          ) : (
+            <>
+              Create account
+              <ArrowRight size={17} strokeWidth={2.4} aria-hidden />
+            </>
+          )}
+        </button>
+      </form>
+
+      <p className="mt-6 text-center text-sm text-muted">
+        Already have an account?{' '}
+        <Link
+          href="/login"
+          className="cg-focusable rounded font-semibold text-accent hover:underline"
+        >
+          Sign in
+        </Link>
+      </p>
+    </>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    // useSearchParams needs a Suspense boundary, or the whole route opts out
+    // of static rendering at build time.
+    <Suspense fallback={<div className="h-[420px]" />}>
+      <RegisterForm />
+    </Suspense>
   );
 }

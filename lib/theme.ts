@@ -56,3 +56,48 @@ export function useThemeColors<T extends Record<string, string>>(
 
   return colors;
 }
+
+/**
+ * 'vs-dark' or 'vs', for Monaco.
+ *
+ * Monaco ships its own themes and does not read the --cg-* variables, so it is
+ * the one surface in the app that has to be told the theme by hand rather than
+ * inheriting it. Left alone it renders its default light theme, which on a dark
+ * page is a white rectangle in the middle of the screen.
+ *
+ * Resolved from the same two sources the CSS uses, in the same order: an
+ * explicit data-theme attribute wins, and with no attribute the OS decides.
+ */
+export function useMonacoTheme(): 'vs' | 'vs-dark' {
+  const read = (): 'vs' | 'vs-dark' => {
+    if (typeof window === 'undefined') return 'vs';
+
+    const attribute = document.documentElement.getAttribute('data-theme');
+    if (attribute === 'dark') return 'vs-dark';
+    if (attribute === 'light') return 'vs';
+
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'vs-dark' : 'vs';
+  };
+
+  // 'vs' on the server and the first client render, so the markup matches; the
+  // effect corrects it before Monaco has finished loading either way.
+  const [theme, setTheme] = useState<'vs' | 'vs-dark'>('vs');
+
+  useEffect(() => {
+    const refresh = () => setTheme(read());
+    refresh();
+
+    // Both signals: the toggle fires the custom event, and the OS fires the
+    // media query for anyone left on System.
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    window.addEventListener('codeguru:themechange', refresh);
+    media.addEventListener('change', refresh);
+
+    return () => {
+      window.removeEventListener('codeguru:themechange', refresh);
+      media.removeEventListener('change', refresh);
+    };
+  }, []);
+
+  return theme;
+}

@@ -1,11 +1,6 @@
 /*
  * theme.css first: Tailwind's utilities reference the --cg-rgb-* tokens it
  * defines, so they have to exist on :root before anything uses them.
- *
- * It is a copy of code-coach/portal/src/styles/codeguru-theme.css, which was
- * the master of three synced copies kept in step by sync-codeguru-shared.sh.
- * Once the other three frontends are retired this becomes the only copy, and
- * that script has nothing left to sync.
  */
 @import './theme.css';
 
@@ -14,25 +9,138 @@
 @tailwind utilities;
 
 @layer base {
+  /* color-scheme is set per-theme in theme.css, not here. Pinning it to light
+     at the base layer is what used to make dark-mode form controls, scrollbars
+     and autofill backgrounds paint light on a dark page. */
+
   html {
-    /* The theme file's own dark block is empty. Declaring the scheme here
-       stops the browser painting form controls and scrollbars for a dark page
-       behind a light one. */
-    color-scheme: light;
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 
   body {
-    background: rgb(var(--cg-rgb-page));
+    background-color: rgb(var(--cg-rgb-page));
     color: rgb(var(--cg-rgb-body));
     font-family: var(--cg-font);
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Both properties transition so a theme switch fades rather than snapping.
+       Kept short: anything slower reads as lag rather than polish. */
+    transition: background-color var(--cg-slow) var(--cg-ease),
+                color var(--cg-slow) var(--cg-ease);
   }
 
-  /* Visible focus, on everything, always. Several of the components being
-     ported set outline:none for looks; this puts it back at the base layer so
-     the app stays keyboard-navigable regardless. */
+  /* Visible focus, on everything, always. Several ported components set
+     outline:none for looks; this puts it back at the base layer so the app
+     stays keyboard-navigable regardless of what a component does. */
   :focus-visible {
     outline: 2px solid rgb(var(--cg-rgb-accent));
     outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: rgb(var(--cg-rgb-accent) / 0.28);
+    color: rgb(var(--cg-rgb-ink));
+  }
+
+  /* Firefox reads these; WebKit uses ::-webkit-scrollbar below. */
+  * {
+    scrollbar-color: rgb(var(--cg-rgb-border-strong)) transparent;
+    scrollbar-width: thin;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--cg-rgb-border-strong));
+    border: 2px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--cg-rgb-muted));
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  /* ── Surfaces ───────────────────────────────────────────────────────────
+     One card recipe, so every panel in the app has the same weight. Used via
+     @apply in components rather than repeated as a class string, because a
+     repeated string is how twelve nearly-identical cards happen. */
+  .cg-card {
+    @apply rounded-cg-lg border border-line bg-card shadow-cg-sm;
+  }
+
+  .cg-card-hover {
+    @apply transition duration-200 ease-cg hover:-translate-y-0.5 hover:border-line-strong hover:shadow-cg-md;
+  }
+
+  /* Frosted chrome. The blur is the expensive part, so it is only on the two
+     surfaces that sit over scrolling content. */
+  .cg-glass {
+    background: var(--cg-glass);
+    backdrop-filter: saturate(180%) var(--cg-glass-blur);
+    -webkit-backdrop-filter: saturate(180%) var(--cg-glass-blur);
+    border-color: var(--cg-glass-border);
+  }
+
+  /* ── Type ───────────────────────────────────────────────────────────────── */
+  .cg-gradient-text {
+    background: var(--cg-gradient-brand);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    /* Without this the descenders of g/y/p clip on some WebKit builds. */
+    padding-bottom: 0.08em;
+  }
+
+  /* ── Focus ring on a rounded control ─────────────────────────────────────
+     Distinct from :focus-visible above, which is the safety net. This is the
+     deliberate ring on inputs and buttons, matched to their radius. */
+  .cg-focusable {
+    @apply outline-none transition duration-150 ease-cg focus-visible:shadow-cg-ring;
+  }
+
+  /* ── Skeleton ────────────────────────────────────────────────────────────
+     A sweep rather than a pulse: a pulsing block on a dark theme reads as an
+     error state, and this one keeps the same meaning in both. */
+  .cg-skeleton {
+    @apply relative overflow-hidden rounded-cg bg-card-alt;
+  }
+
+  .cg-skeleton::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgb(var(--cg-rgb-border) / 0.9),
+      transparent
+    );
+    animation: cg-sweep 1.6s var(--cg-ease) infinite;
   }
 }

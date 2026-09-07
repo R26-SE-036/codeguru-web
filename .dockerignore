@@ -1,0 +1,14 @@
+# Anything that would either bloat the build context or leak into the image.
+node_modules
+.next
+.next-preview
+.next-check
+.git
+.env
+.env.local
+.env.*.local
+npm-debug.log*
+tsconfig.tsbuildinfo
+.claude
+docs
+README.md

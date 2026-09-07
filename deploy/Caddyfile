@@ -1,0 +1,42 @@
+# The edge. Everything the browser touches arrives here.
+#
+# This is the whole job an Application Load Balancer was going to do: terminate
+# TLS, route two paths, and forward WebSocket upgrades. An ALB bills roughly
+# $16/month by the hour whether or not anyone is using it; this bills nothing.
+#
+# {$CADDY_SITE} is ":80" locally and a hostname in production. Giving it a real
+# hostname is the only change needed to get automatic HTTPS: Caddy provisions
+# and renews a Let's Encrypt certificate on its own, which is the other thing
+# that would otherwise have been an ACM certificate wired to a listener.
+
+{$CADDY_SITE} {
+	encode gzip zstd
+
+	# ── PairPath's Socket.IO ─────────────────────────────────────────────────
+	# A WebSocket cannot be proxied through a Next route handler, so this is the
+	# one backend path the browser reaches directly. Same-origin, so no CORS and
+	# no token in a query string.
+	#
+	# The rewrite matters: the browser is told to use path /pair-ws/socket.io
+	# (see lib/use-pair-socket.ts), but the gateway serves Socket.IO at its
+	# default /socket.io. Without stripping the prefix the handshake 404s and
+	# the workspace shows "disconnected" with no explanation.
+	handle_path /pair-ws/* {
+		reverse_proxy pairpath-api:3001
+	}
+
+	# ── Everything else ──────────────────────────────────────────────────────
+	# Including /api/bff/*, which is the app's own route handler - it proxies to
+	# the backends server-side, so those never appear here.
+	handle {
+		reverse_proxy web:4200
+	}
+
+	# Caddy's own access log, to stdout, so `docker compose logs caddy` shows
+	# what the edge actually received rather than what each service thinks it
+	# was sent.
+	log {
+		output stdout
+		format console
+	}
+}

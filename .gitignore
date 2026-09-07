@@ -13,3 +13,6 @@ build/
 # System
 .DS_Store
 Thumbs.db
+
+# A preview build made with NEXT_DIST_DIR, alongside the dev server.
+.next-preview/

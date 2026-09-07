@@ -6,10 +6,11 @@
  *
  *   game type    Code Coach: bug_hunt, loop_tracer, condition_debug,
  *                            debug_challenge
- *                Engine:     BugHunt, DragDrop, CodeTrace
+ *                Engine:     BugHunt, DragDrop, CodeTrace, CodeFix
  *
  *   difficulty   Code Coach: beginner, intermediate, advanced
- *                Engine:     Easy, Medium, Hard
+ *                Engine:     Beginner, Elementary, Intermediate, Advanced, Expert
+ *                            (was Easy / Medium / Hard until the five-level change)
  *
  * That mapping previously existed in three places - the engine's
  * config/constants.js, its routes/gamification.js, and its frontend config.js -
@@ -25,8 +26,13 @@
  * ==============================================================
  */
 
-/** The three games this engine actually implements. */
-export const GAME_TYPES = ['BugHunt', 'DragDrop', 'CodeTrace'] as const;
+/**
+ * The games this engine implements. Must match GAME_TYPES in the engine's
+ * config/constants.js - a type listed here but not there is served as a
+ * fallback game of a different kind, which is the drift this file exists to
+ * prevent.
+ */
+export const GAME_TYPES = ['BugHunt', 'DragDrop', 'CodeTrace', 'CodeFix'] as const;
 export type GameType = (typeof GAME_TYPES)[number];
 
 /** Code Coach's names for a kind of practice, mapped to what we implement. */
@@ -38,18 +44,38 @@ const GAME_TYPE_ALIASES: Record<string, GameType> = {
   code_trace: 'CodeTrace',
   drag_drop: 'DragDrop',
   reorder: 'DragDrop',
+  // Code Coach has no name for CodeFix - it is this engine's own game - so
+  // only the engine's spelling resolves. Kept here so the intent is explicit
+  // rather than an omission someone later reads as a bug.
+  code_fix: 'CodeFix',
+  fix_the_bug: 'CodeFix',
 };
 
-export const DIFFICULTIES = ['Easy', 'Medium', 'Hard'] as const;
+/**
+ * The five levels, easiest first. Must match DIFFICULTY_LEVELS in the engine's
+ * config/constants.js, in the same order - the order is what progression walks
+ * and what the model's ordinal feature is built from.
+ */
+export const DIFFICULTIES = [
+  'Beginner',
+  'Elementary',
+  'Intermediate',
+  'Advanced',
+  'Expert',
+] as const;
 export type Difficulty = (typeof DIFFICULTIES)[number];
 
 const DIFFICULTY_ALIASES: Record<string, Difficulty> = {
-  beginner: 'Easy',
-  easy: 'Easy',
-  intermediate: 'Medium',
-  medium: 'Medium',
-  advanced: 'Hard',
-  hard: 'Hard',
+  beginner: 'Beginner',
+  elementary: 'Elementary',
+  intermediate: 'Intermediate',
+  advanced: 'Advanced',
+  expert: 'Expert',
+  // The retired three-level scale, still present in Code Coach's
+  // recommendations and in any link saved before the change.
+  easy: 'Beginner',
+  medium: 'Intermediate',
+  hard: 'Advanced',
 };
 
 /** Resolve either vocabulary to a game type, or null if unrecognised. */
@@ -96,5 +122,39 @@ export function describeDifficultySource(source: string | undefined): string | n
       return null;
     default:
       return null;
+  }
+}
+
+/**
+ * The originating component of a timeline event, as a student should read it.
+ *
+ * The store records `code_coach`, `study_guider`, `adaptive_gamification` and
+ * `pair_path`. Those are service names — an internal fact with no meaning to
+ * the person reading their own activity — and the raw value used to be printed
+ * straight onto the home page.
+ */
+const COMPONENT_LABELS: Record<string, string> = {
+  code_coach: 'Editor',
+  study_guider: 'Study',
+  adaptive_gamification: 'Practice',
+  pair_path: 'Pair',
+};
+
+export function formatComponent(value: string | undefined): string {
+  if (!value) return 'Activity';
+  return COMPONENT_LABELS[value] ?? formatConcept(value);
+}
+
+/** A section hue class for a component, matching the sidebar. */
+export function componentTone(value: string | undefined): string {
+  switch (value) {
+    case 'study_guider':
+      return 'bg-hue-study/10 text-hue-study ring-hue-study/25';
+    case 'adaptive_gamification':
+      return 'bg-hue-play/10 text-hue-play ring-hue-play/25';
+    case 'pair_path':
+      return 'bg-hue-pair/10 text-hue-pair ring-hue-pair/25';
+    default:
+      return 'bg-hue-insight/10 text-hue-insight ring-hue-insight/25';
   }
 }

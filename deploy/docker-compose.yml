@@ -1,0 +1,172 @@
+# The whole platform, one command.
+#
+#   cd codeguru-web/deploy
+#   docker compose build          # first time, or after a code change
+#   docker compose up -d
+#   open http://localhost:8080
+#
+# ── What this replaces ───────────────────────────────────────────────────────
+# Seven terminals, each with a different runtime, a different start command and
+# a different .env, started in an order nobody wrote down. Getting one wrong
+# produced a symptom in a different service - which is how PairPath spent
+# months posting feature vectors at Code Coach's port.
+#
+# ── Why only Caddy publishes a port ──────────────────────────────────────────
+# The browser talks to exactly two things: the web app, and PairPath's socket.
+# Every other backend call goes through the BFF, server-side, so the backends
+# need to be reachable from codeguru-web and from nowhere else. They are on the
+# internal network with no `ports:` mapping, which means they are not reachable
+# from the host at all - the same posture as a private subnet, minus the VPC.
+#
+# That is also why there is no CORS configuration anywhere below. One origin.
+#
+# ── Costs this avoids ────────────────────────────────────────────────────────
+# Caddy does TLS and path routing, which is the entire job an ALB was going to
+# do for ~$16/month billed hourly whether anyone is using it. The four
+# databases are already free managed tiers - Neon, Neo4j Aura and two Atlas
+# clusters - so nothing here needs RDS or ElastiCache either.
+#
+# ── Deploying this ───────────────────────────────────────────────────────────
+# On a server you do not build: push the images to a registry, replace the
+# `build:` blocks with the registry tags, put the env files beside this
+# compose file, and set CADDY_SITE to the real hostname so Caddy provisions a
+# certificate. Everything else is identical.
+
+name: codeguru
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  # ── Edge ──────────────────────────────────────────────────────────────────
+  caddy:
+    <<: *restart
+    image: caddy:2-alpine
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+      - "${HTTPS_PORT:-8443}:443"
+    environment:
+      # ":80" locally. A hostname in production, which is what makes Caddy
+      # fetch a Let's Encrypt certificate automatically.
+      CADDY_SITE: "${CADDY_SITE:-:80}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+  # ── Web tier / BFF ────────────────────────────────────────────────────────
+  web:
+    <<: *restart
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    image: codeguru-web:local
+    env_file: [../.env.local]
+    environment:
+      # Service names, not 127.0.0.1. These override whatever the env file says
+      # precisely because that file is written for running on the host.
+      CODE_COACH_URL: http://code-coach:8080
+      STUDY_GUIDER_URL: http://study-guider:8010
+      PAIRPATH_URL: http://pairpath-api:3001
+      GAMIFICATION_URL: http://gamification-api:3002
+      # Deliberately blank. Set, it makes the browser connect straight to
+      # PairPath and bypass the edge; empty means same-origin through Caddy,
+      # which is the whole point of routing /pair-ws/* below.
+      NEXT_PUBLIC_PAIR_WS_URL: ""
+    depends_on: [code-coach, study-guider, pairpath-api, gamification-api]
+
+  # ── Identity provider and diagnostics store ───────────────────────────────
+  # Everything else verifies its tokens here, so everything else waits for it.
+  code-coach:
+    <<: *restart
+    build:
+      context: ../../code-coach
+      dockerfile: Dockerfile
+    image: code-coach:local
+    env_file: [../../code-coach/backend/.env]
+
+  # ── Study Guider ──────────────────────────────────────────────────────────
+  study-guider:
+    <<: *restart
+    build:
+      context: ../../Study-Guider/backend
+      dockerfile: Dockerfile
+    image: study-guider:local
+    env_file: [../../Study-Guider/backend/.env]
+    environment:
+      CODE_COACH_URL: http://code-coach:8080
+    depends_on: [code-coach]
+
+  # ── PairPath ──────────────────────────────────────────────────────────────
+  pairpath-api:
+    <<: *restart
+    build:
+      context: ../../Pair_Path/api
+      dockerfile: Dockerfile
+    image: pairpath-api:local
+    env_file: [../../Pair_Path/api/.env]
+    environment:
+      CODE_COACH_URL: http://code-coach:8080
+      ML_SERVICE_URL: http://pairpath-ml:8000
+      # Same-origin through Caddy, so the only origin the browser ever uses is
+      # the edge's. Kept explicit rather than removed: the API still reads it.
+      CORS_ORIGINS: "${PUBLIC_ORIGIN:-http://localhost:8080}"
+      # Redis is not in this stack. Its only live use is intervention
+      # cooldowns, and the service falls back to an in-process map - which is
+      # correct here, because PairPath has no Socket.IO adapter and therefore
+      # cannot run as more than one instance anyway.
+      REDIS_URL: ""
+    depends_on: [code-coach, pairpath-ml]
+
+  pairpath-ml:
+    <<: *restart
+    build:
+      context: ../../Pair_Path/ml-service
+      dockerfile: Dockerfile
+    image: pairpath-ml:local
+
+  # ── Gamification ──────────────────────────────────────────────────────────
+  gamification-api:
+    <<: *restart
+    build:
+      context: ../../adaptive-gamification-engine/backend
+      dockerfile: Dockerfile
+    image: gamification-api:local
+    env_file: [../../adaptive-gamification-engine/backend/.env]
+    environment:
+      CODE_COACH_URL: http://code-coach:8080
+      ML_SERVICE_URL: http://gamification-ml:5000
+      # FR-12: the engine transmits a summary of every completed round to the
+      # Progress Tracker. Without this it would fall back to the localhost
+      # default and log a failed transmission after every game.
+      STUDY_GUIDER_URL: http://study-guider:8010
+    depends_on: [code-coach, gamification-ml, study-guider]
+
+  # Serves the difficulty model, and can refit it from the game sessions in
+  # Mongo. It had no environment at all, which meant two things silently: the
+  # trainer could not reach the database (it falls back to reading backend/.env,
+  # which is deliberately not in the image), and RETRAIN_SECRET was unset - so
+  # POST /retrain answered 403 to everyone, including whoever was meant to use
+  # it. Both are inherited from the backend's .env rather than restated here.
+  gamification-ml:
+    <<: *restart
+    build:
+      context: ../../adaptive-gamification-engine/backend/ml
+      dockerfile: Dockerfile
+    image: gamification-ml:local
+    env_file: [../../adaptive-gamification-engine/backend/.env]
+    environment:
+      # The backend's .env also carries PORT=3002 for the Node service, which
+      # would move this one off the port gamification-api is pointed at.
+      PORT: "5000"
+
+# The code runner is NOT here. It is a Lambda container image, and running it
+# beside everything else would put student-submitted Java on the same host as
+# the identity provider - which is the isolation the Lambda exists to provide.
+# See Pair_Path/code-runner-lambda.
+
+volumes:
+  caddy_data:
+  caddy_config:

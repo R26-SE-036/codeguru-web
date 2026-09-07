@@ -31,6 +31,22 @@ export async function getSession(): Promise<Session | null> {
  * null. Rendering nothing at all, or an empty list, would tell the student
  * they have no diagnostics when the truth is that we could not find out.
  */
+/**
+ * How long to wait for a backend before giving up on it.
+ *
+ * There was no timeout at all, which is worse than a slow one. `fetch` has no
+ * default deadline, so an upstream that accepts the connection and then never
+ * answers - a hung worker, a service mid-restart - left the server component
+ * awaiting indefinitely. Next holds the navigation until a server component
+ * resolves, so the student sat on the PREVIOUS page with nothing happening and
+ * no way to tell whether anything was wrong.
+ *
+ * 8 seconds is longer than any of these calls legitimately takes and short
+ * enough that a hang reads as a hang. Note this is a per-call budget: the
+ * dashboard fetches in parallel, so one slow service does not add to another.
+ */
+const TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || 8000);
+
 export async function serverFetch<T>(
   service: ServiceKey,
   path: string,
@@ -46,6 +62,7 @@ export async function serverFetch<T>(
     const response = await fetch(upstreamUrl(service, path, ''), {
       headers: { Authorization: `Bearer ${token}` },
       cache: 'no-store',
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -55,7 +72,15 @@ export async function serverFetch<T>(
 
     return (await response.json()) as T;
   } catch (error) {
-    console.warn(`serverFetch: ${service}${path} unreachable:`, error);
+    // A timeout arrives here as a TimeoutError, which is worth naming: "took
+    // longer than 8s" and "refused the connection" look identical in a log
+    // that only prints the message, and they have different causes.
+    const reason =
+      error instanceof Error && error.name === 'TimeoutError'
+        ? `did not answer within ${TIMEOUT_MS}ms`
+        : 'unreachable';
+
+    console.warn(`serverFetch: ${service}${path} ${reason}:`, error);
     return null;
   }
 }

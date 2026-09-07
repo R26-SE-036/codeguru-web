@@ -98,11 +98,22 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Everything except Next's own assets and the auth endpoints.
+     * Everything except Next's own assets, the app's own icons, and the auth
+     * endpoints.
      *
      * /api/auth/* is excluded deliberately: those routes establish a session,
      * so gating them on having one would make signing in impossible.
+     *
+     * The icons are excluded because the exclusion list only named
+     * `favicon.ico`, and this app serves app/icon.svg instead - so the browser
+     * asked for /icon.svg, the middleware saw an unauthenticated request for a
+     * page, and answered 307 to /login. The tab icon simply never loaded, and
+     * on the login screen it could not load by definition.
+     *
+     * Anything with a file extension is excluded for the same reason: a
+     * redirect to an HTML login page is never a useful answer to a request for
+     * a static file, whoever is asking.
      */
-    '/((?!_next/static|_next/image|favicon.ico|api/auth/).*)',
+    '/((?!_next/static|_next/image|api/auth/|.*\\.[\\w]+$).*)',
   ],
 };
