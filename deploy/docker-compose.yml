@@ -103,10 +103,10 @@ services:
   pairpath-api:
     <<: *restart
     build:
-      context: ../../Pair_Path/api
+      context: ../../Pair_Path/backend
       dockerfile: Dockerfile
     image: pairpath-api:local
-    env_file: [../../Pair_Path/api/.env]
+    env_file: [../../Pair_Path/backend/.env]
     environment:
       CODE_COACH_URL: http://code-coach:8080
       ML_SERVICE_URL: http://pairpath-ml:8000
@@ -123,7 +123,7 @@ services:
   pairpath-ml:
     <<: *restart
     build:
-      context: ../../Pair_Path/ml-service
+      context: ../../Pair_Path/backend/ml
       dockerfile: Dockerfile
     image: pairpath-ml:local
 
