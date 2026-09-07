@@ -221,6 +221,45 @@ export function GamePlayer({
   const dragFrom = useRef<number | null>(null);
   const dragTo = useRef<number | null>(null);
 
+  /** The row a keyboard move should leave focused, applied after the render. */
+  const focusPosition = useRef<number | null>(null);
+
+  /**
+   * Move one line up or down in the ordering.
+   *
+   * Drag & Drop was mouse-only: the rows were `draggable` divs with pointer
+   * handlers and nothing else, so a student who cannot use a mouse could not
+   * play that game AT ALL. NFR-04 targets a usability score of 68 and nobody
+   * had tested it; this would have failed an accessibility review outright.
+   *
+   * Arrow keys move the focused line. That is the standard keyboard equivalent
+   * for a reorderable list, and it needs no drag mode to enter or leave.
+   */
+  const moveLine = useCallback(
+    (position: number, delta: number) => {
+      if (!Array.isArray(state.answer)) return;
+
+      const target = position + delta;
+      if (target < 0 || target >= state.answer.length) return;
+
+      const next = [...state.answer];
+      [next[position], next[target]] = [next[target], next[position]];
+      dispatch({ type: 'ANSWER', answer: next });
+
+      // Follow the line the student just moved, so a second press continues
+      // moving the same one.
+      //
+      // Recorded for an effect to act on AFTER the render rather than focused
+      // here: React replaces the row with a new DOM node, so anything that runs
+      // before the commit focuses an element that is about to be discarded.
+      // requestAnimationFrame was not late enough - the first press worked and
+      // focus was then lost, which would have meant re-focusing by hand between
+      // every single move.
+      focusPosition.current = target;
+    },
+    [state.answer],
+  );
+
   /**
    * The question's OWN gameType and difficulty, not the URL's.
    *
@@ -294,6 +333,17 @@ export function GamePlayer({
     dragTo.current = null;
     dispatch({ type: 'ANSWER', answer: next });
   }, [state.answer]);
+
+  // Restore focus to the row the student just moved. Runs after every commit,
+  // and does nothing unless a keyboard move asked for it - a mouse drag should
+  // not steal focus.
+  useEffect(() => {
+    if (focusPosition.current === null) return;
+
+    const target = focusPosition.current;
+    focusPosition.current = null;
+    document.querySelector<HTMLElement>(`[data-order-position="${target}"]`)?.focus();
+  });
 
   /**
    * Ask for the next hint.
@@ -525,7 +575,7 @@ export function GamePlayer({
       <Card className="overflow-hidden">
         <h2 className="border-b border-line bg-card-alt px-5 py-3 font-semibold text-ink">
           {activeGameType === 'BugHunt' && 'Find the line with the mistake'}
-          {activeGameType === 'DragDrop' && 'Drag the lines into a correct order'}
+          {activeGameType === 'DragDrop' && 'Put the lines into a correct order'}
           {activeGameType === 'CodeTrace' && 'Trace the code and give the final output'}
           {activeGameType === 'CodeFix' && 'Rewrite the highlighted line so the code is correct'}
         </h2>
@@ -550,26 +600,58 @@ export function GamePlayer({
               </button>
             ))}
 
-          {activeGameType === 'DragDrop' &&
-            Array.isArray(state.answer) &&
-            state.answer.map((originalIndex, position) => (
-              <div
-                key={`${originalIndex}-${position}`}
-                draggable
-                onDragStart={() => (dragFrom.current = position)}
-                onDragEnter={() => (dragTo.current = position)}
-                onDragEnd={onDrop}
-                onDragOver={(event) => event.preventDefault()}
-                className="group flex cursor-grab items-center gap-3 rounded-cg-sm px-2.5 py-1.5 transition hover:bg-card/70 active:cursor-grabbing"
+          {activeGameType === 'DragDrop' && Array.isArray(state.answer) && (
+            <>
+              {/* Said out loud, not left to be discovered. A student who cannot
+                  drag has no way to guess that arrow keys work unless told. */}
+              <p className="mb-2 px-2.5 font-sans text-xs text-muted">
+                Drag a line, or focus one and use the up and down arrow keys.
+              </p>
+              <ul
+                // A list, because that is what it is - a screen reader announces
+                // the length and the position, which is most of what a sighted
+                // student gets from seeing the rows stacked.
+                aria-label="Code lines. Use the arrow keys to reorder."
+                className="space-y-0.5"
               >
-                <GripVertical
-                  size={15}
-                  aria-hidden
-                  className="shrink-0 text-faint-nontext transition group-hover:text-muted"
-                />
-                <span className="whitespace-pre">{question.codeLines[originalIndex]}</span>
-              </div>
-            ))}
+              {state.answer.map((originalIndex, position) => (
+                <li
+                  key={`${originalIndex}-${position}`}
+                  data-order-position={position}
+                  tabIndex={0}
+                  draggable
+                  onDragStart={() => (dragFrom.current = position)}
+                  onDragEnter={() => (dragTo.current = position)}
+                  onDragEnd={onDrop}
+                  onDragOver={(event) => event.preventDefault()}
+                  onKeyDown={(event) => {
+                    if (event.key === 'ArrowUp') {
+                      event.preventDefault();
+                      moveLine(position, -1);
+                    } else if (event.key === 'ArrowDown') {
+                      event.preventDefault();
+                      moveLine(position, 1);
+                    }
+                  }}
+                  aria-label={`Line ${position + 1} of ${
+                    (state.answer as number[]).length
+                  }: ${question.codeLines[originalIndex]}`}
+                  className="cg-focusable group flex cursor-grab items-center gap-3 rounded-cg-sm px-2.5 py-1.5 transition hover:bg-card/70 active:cursor-grabbing"
+                >
+                  <GripVertical
+                    size={15}
+                    aria-hidden
+                    className="shrink-0 text-faint-nontext transition group-hover:text-muted"
+                  />
+                  <span className="w-5 shrink-0 select-none text-right text-faint-nontext">
+                    {position + 1}
+                  </span>
+                  <span className="whitespace-pre">{question.codeLines[originalIndex]}</span>
+                </li>
+                ))}
+              </ul>
+            </>
+          )}
 
           {activeGameType === 'CodeTrace' && (
             <>
