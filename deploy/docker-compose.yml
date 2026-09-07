@@ -138,7 +138,11 @@ services:
     environment:
       CODE_COACH_URL: http://code-coach:8080
       ML_SERVICE_URL: http://gamification-ml:5000
-    depends_on: [code-coach, gamification-ml]
+      # FR-12: the engine transmits a summary of every completed round to the
+      # Progress Tracker. Without this it would fall back to the localhost
+      # default and log a failed transmission after every game.
+      STUDY_GUIDER_URL: http://study-guider:8010
+    depends_on: [code-coach, gamification-ml, study-guider]
 
   # Serves the difficulty model, and can refit it from the game sessions in
   # Mongo. It had no environment at all, which meant two things silently: the
