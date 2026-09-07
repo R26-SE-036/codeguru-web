@@ -5,6 +5,7 @@ import { ArrowRight, Clock3, Gamepad2, Sparkles, TriangleAlert, Users } from 'lu
 import { getSession, serverFetch } from '@/lib/server-api';
 import { SECTIONS } from '@/lib/nav';
 import { componentTone, formatComponent } from '@/lib/vocabulary';
+import { relativeTime } from '@/lib/time';
 import { Card, EmptyState, SectionTitle, Stat, Unavailable } from '@/components/ui';
 import { GettingStarted } from '@/components/getting-started';
 
@@ -274,21 +275,4 @@ function greeting(): string {
   return 'Good evening';
 }
 
-function relativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return '';
 
-  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
-  if (seconds < 60) return 'just now';
-
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-
-  const days = Math.round(hours / 24);
-  if (days < 7) return `${days}d ago`;
-
-  return `${Math.round(days / 7)}w ago`;
-}
