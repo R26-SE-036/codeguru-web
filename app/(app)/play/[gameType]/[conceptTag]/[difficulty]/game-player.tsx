@@ -49,7 +49,24 @@ interface Question {
   /** Added by the backend: which engine chose the difficulty. */
   difficultyChosenBy?: string;
   difficultyConfidence?: number | null;
+  difficultyReason?: string | null;
   targetDifficulty?: string;
+
+  /**
+   * The adaptation decision this game came from, to be echoed back on submit.
+   *
+   * Without it the backend has to GUESS which decision produced which outcome -
+   * it falls back to the most recent unresolved decision for this student and
+   * concept, and records the link as 'inferred'. calibration.js counts only
+   * 'echo' rows by default, so an engine whose client does not send this back
+   * can measure nothing about itself.
+   *
+   * Null when the caller named a difficulty, because then no decision was made.
+   */
+  decisionId?: string | null;
+
+  /** Whether this round was served at an exploratory level. */
+  wasExploratory?: boolean;
 }
 
 interface SubmitResult {
@@ -71,18 +88,35 @@ interface SubmitResult {
 type Answer = number | number[] | string | null;
 
 /**
- * CodeFix only. The verdict on the last checked attempt, and the hint that came
- * back with it.
+ * The verdict on the last checked attempt.
  *
  * Checking is a server call, not a local comparison: the answer never reaches
  * the browser (see the backend's /game/check), which is also what makes the
  * error count a measurement rather than something this component reports about
  * itself.
+ *
+ * ================== WHY EVERY GAME CHECKS, NOT JUST CodeFix ==================
+ * This was CodeFix-only, and the consequence was not a missing button. It was
+ * that `errorCount` and `attemptCount` were MEASURED for one format out of four
+ * and asserted for the other three - which quietly made them a proxy for the
+ * format rather than for the student:
+ *
+ *   * the model's `avg_attempts` feature was 1 for every BugHunt, DragDrop and
+ *     CodeTrace round ever played, so it encoded "was this CodeFix";
+ *   * the proposal's own support rule, `errorCount > 5`, could only ever fire
+ *     on a CodeFix round, because nothing else could record more than one;
+ *   * and a student wrestling with a Drag & Drop looked identical in the data
+ *     to one who got it first time.
+ *
+ * The backend never had this restriction - /game/check grades whatever the
+ * question's own type says, and has since it was written. Only this file did.
  */
 interface CheckState {
   correct: boolean;
   hint: string | null;
   wrongAttempts: number;
+  /** The server's count of attempts on this question, including this one. */
+  attemptNumber: number;
 }
 
 interface State {
@@ -149,7 +183,15 @@ function reducer(state: State, action: Action): State {
     case 'CHECKING':
       return { ...state, checking: true };
     case 'CHECKED':
-      return { ...state, checking: false, check: action.check };
+      return {
+        ...state,
+        checking: false,
+        check: action.check,
+        // The SERVER's count, not a local increment - it is the one the score is
+        // computed from, and it survives a refresh because it lives in a
+        // GameAttempt document rather than in this component.
+        attemptCount: action.check.attemptNumber || state.attemptCount,
+      };
     case 'HINT_PENDING':
       return { ...state, takingHint: true };
     case 'HINT': {
@@ -270,6 +312,19 @@ export function GamePlayer({
    * mastery model.
    */
   const activeGameType = state.question?.gameType ?? gameType;
+
+  /**
+   * Whether there is an answer worth sending.
+   *
+   * The four games hold their answer in three different shapes - a line index,
+   * an ordering, a typed string - and both Check and Submit need the same test.
+   * Written once so the two buttons cannot disagree about whether the round is
+   * ready, which is the kind of drift that leaves one of them permanently
+   * disabled.
+   */
+  const hasAnswer =
+    state.answer !== null &&
+    (typeof state.answer !== 'string' || state.answer.trim().length > 0);
   const activeDifficulty = state.question?.difficulty ?? difficulty;
 
   useEffect(() => {
@@ -392,7 +447,7 @@ export function GamePlayer({
   }
 
   /**
-   * CodeFix: ask the server whether this line is right, without ending the game.
+   * Ask the server whether this answer is right, WITHOUT ending the round.
    *
    * The verdict is not computed here because the answer is not here - the
    * question arrives with `correctAnswer` stripped. That is deliberate twice
@@ -403,15 +458,24 @@ export function GamePlayer({
    *
    * A correct check finalises the round immediately - having got it right,
    * being made to press a second button says nothing.
+   *
+   * ===================== CHECKING IS NOT A FREE RETRY =====================
+   * There is no cap on checks and none is needed, because the score already
+   * prices them: every attempt after the first costs 10 points, so a student
+   * clicking through all six lines of a Bug Hunt arrives at the right one with
+   * 50 - below the 70 pass mark. Guessing is possible and self-defeating, which
+   * is the correct shape for a practice tool. A cap would instead produce a
+   * round the student can no longer finish.
    */
   async function check() {
-    if (!state.question || typeof state.answer !== 'string' || !state.answer.trim()) return;
+    if (!state.question || !hasAnswer) return;
 
     dispatch({ type: 'CHECKING' });
 
     try {
       const verdict = await api.post<{
         correct: boolean;
+        attemptNumber: number;
         wrongAttempts: number;
         hintsRemaining: number;
       }>('play', '/game/check', {
@@ -430,6 +494,7 @@ export function GamePlayer({
           // an attempt happened to be wrong.
           hint: null,
           wrongAttempts: verdict.wrongAttempts ?? 0,
+          attemptNumber: verdict.attemptNumber ?? state.attemptCount,
         },
       });
 
@@ -439,7 +504,12 @@ export function GamePlayer({
       // can still submit, which grades the same answer the same way.
       dispatch({
         type: 'CHECKED',
-        check: { correct: false, hint: 'Could not reach the checker. You can still submit.', wrongAttempts: 0 },
+        check: {
+          correct: false,
+          hint: 'Could not reach the checker. You can still submit.',
+          wrongAttempts: 0,
+          attemptNumber: state.attemptCount,
+        },
       });
     }
   }
@@ -458,6 +528,13 @@ export function GamePlayer({
         hintUsage: state.hintLevel,
         timeTakenSeconds: state.seconds,
         attemptCount: state.attemptCount,
+
+        // Echoed back so the engine can join this outcome to the decision that
+        // produced it. Without them the join is a guess ('inferred') and the
+        // exploratory rows - the only ones free of the policy's own influence -
+        // are indistinguishable from the rest.
+        decisionId: state.question.decisionId ?? null,
+        wasExploratory: state.question.wasExploratory === true,
       });
 
       setResult(submitted);
@@ -729,42 +806,62 @@ export function GamePlayer({
                   Spacing does not matter. Everything else does.
                 </p>
 
-                {state.check && !state.check.correct && (
-                  <div className="mt-3 flex gap-3 rounded-cg border border-danger/30 bg-danger/10 p-3.5">
-                    <TriangleAlert
-                      size={17}
-                      strokeWidth={2.2}
-                      aria-hidden
-                      className="mt-0.5 shrink-0 text-danger"
-                    />
-                    <div className="font-sans text-sm">
-                      <p className="font-semibold text-ink">
-                        Not right yet
-                        {state.check.wrongAttempts > 1
-                          ? ` — ${state.check.wrongAttempts} tries so far`
-                          : ''}
-                      </p>
-                      {state.check.hint && <p className="mt-1 text-body">{state.check.hint}</p>}
-                    </div>
-                  </div>
-                )}
-
-                {state.check?.correct && (
-                  <div className="mt-3 flex items-center gap-3 rounded-cg border border-ok/30 bg-ok/10 p-3.5 font-sans text-sm">
-                    <CircleCheck
-                      size={17}
-                      strokeWidth={2.2}
-                      aria-hidden
-                      className="shrink-0 text-ok"
-                    />
-                    <p className="font-semibold text-ink">That is the fix.</p>
-                  </div>
-                )}
               </div>
             </>
           )}
         </div>
       </Card>
+
+      {/* The verdict on the last check, for whichever game is being played.
+          It used to live inside the CodeFix branch, which is why the other
+          three had no way to be told anything short of their final score. */}
+      {state.check && (
+        <Card
+          // Announced, because a student who checks with the keyboard gets no
+          // other signal that anything happened.
+          role="status"
+          aria-live="polite"
+          className={`flex gap-4 border-l-4 p-5 ${
+            state.check.correct ? 'border-l-ok' : 'border-l-danger'
+          }`}
+        >
+          <span
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-cg ${
+              state.check.correct ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'
+            }`}
+          >
+            {state.check.correct ? (
+              <CircleCheck size={18} strokeWidth={2.2} aria-hidden />
+            ) : (
+              <TriangleAlert size={18} strokeWidth={2.2} aria-hidden />
+            )}
+          </span>
+          <div className="text-sm">
+            <p className="font-bold text-ink">
+              {state.check.correct
+                ? 'That is right.'
+                : `Not right yet${
+                    state.check.wrongAttempts > 1
+                      ? ` — ${state.check.wrongAttempts} tries so far`
+                      : ''
+                  }`}
+            </p>
+            {state.check.hint ? (
+              <p className="mt-1 text-body">{state.check.hint}</p>
+            ) : (
+              !state.check.correct && (
+                // Said plainly, because the cost is the reason checking is not a
+                // free retry and a student deciding whether to guess again
+                // should know the price before they pay it.
+                <p className="mt-1 text-body">
+                  Change your answer and check again — each try after the first
+                  costs 10 points.
+                </p>
+              )
+            )}
+          </div>
+        </Card>
+      )}
 
       {state.hints.length > 0 && (
         <Card className="flex gap-4 border-l-4 border-l-warn p-5">
@@ -816,47 +913,54 @@ export function GamePlayer({
 
         <div className="flex items-center gap-3">
           <span className="text-sm text-muted">
-            {/* For CodeFix the count comes from the server, which has graded
-                every attempt. For the others it is the local counter. */}
-            {activeGameType === 'CodeFix' && state.check
+            {/* The server's count once anything has been checked - it graded
+                those attempts, so it is the one the score comes from. */}
+            {state.check
               ? `${state.check.wrongAttempts} wrong so far`
               : `Attempt ${state.attemptCount}`}
           </span>
 
-          {activeGameType === 'CodeFix' ? (
-            <button
-              type="button"
-              onClick={check}
-              disabled={
-                state.checking ||
-                state.phase !== 'playing' ||
-                typeof state.answer !== 'string' ||
-                !state.answer.trim()
-              }
-              className={buttonClass()}
-            >
-              {state.checking ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" aria-hidden />
-                  Checking…
-                </>
-              ) : (
-                <>
-                  <CircleCheck size={16} strokeWidth={2.2} aria-hidden />
-                  Check my fix
-                </>
-              )}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={submit}
-              disabled={state.answer === null || state.phase !== 'playing'}
-              className={buttonClass()}
-            >
-              Submit answer
-            </button>
-          )}
+          {/*
+            Both buttons, for every game.
+
+            CHECK grades without ending the round, so a wrong answer becomes a
+            recorded attempt the student can learn from rather than a finished
+            round scoring zero.
+
+            SUBMIT ends it either way, and it has to exist for every format -
+            CodeFix had only Check, which meant a student who could not work out
+            the fix had NO WAY to finish. Every one of those rounds went down as
+            abandoned, so the corpus for that format kept its successes and lost
+            its failures. A component that measures itself cannot afford a
+            silent filter like that in its own UI.
+          */}
+          <button
+            type="button"
+            onClick={check}
+            disabled={state.checking || state.phase !== 'playing' || !hasAnswer}
+            className={buttonClass({ variant: 'secondary' })}
+          >
+            {state.checking ? (
+              <>
+                <Loader2 size={16} className="animate-spin" aria-hidden />
+                Checking…
+              </>
+            ) : (
+              <>
+                <CircleCheck size={16} strokeWidth={2.2} aria-hidden />
+                Check answer
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={submit}
+            disabled={state.checking || state.phase !== 'playing' || !hasAnswer}
+            className={buttonClass()}
+          >
+            Submit answer
+          </button>
         </div>
       </div>
 
