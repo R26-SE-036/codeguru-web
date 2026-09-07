@@ -72,6 +72,14 @@ interface Session {
     title?: string;
     description?: string;
     starterCode?: string;
+    difficulty?: string;
+    /**
+     * The platform concept tags. Shown because they are the thread between
+     * components - the same tag names a Code Coach finding, a Study Guider
+     * lesson and a practice game - and a student who never sees them cannot
+     * connect the exercise in front of them to any of that.
+     */
+    conceptTags?: string[];
   };
 }
 
@@ -189,6 +197,10 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
       user_joined: () => setPartnerConnected(true),
       user_left: () => setPartnerConnected(false),
       session_ended: () => router.push(`/pair/${sessionId}/review`),
+      // Reopening a finished session used to connect, write a JOIN event and
+      // accept edits onto a closed record. The gateway refuses now; this is
+      // the client half - go where the session actually lives.
+      session_closed: () => router.replace(`/pair/${sessionId}/results`),
     }),
     [router, sessionId],
   );
@@ -366,6 +378,19 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
       {session?.question?.description && (
         <Card className="p-5">
           <p className="text-body">{session.question.description}</p>
+
+          {(session.question.conceptTags?.length || session.question.difficulty) && (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              {session.question.difficulty && (
+                <Badge tone="neutral">{session.question.difficulty.toLowerCase()}</Badge>
+              )}
+              {session.question.conceptTags?.map((tag) => (
+                <Badge key={tag} tone="accent">
+                  {tag.replace(/_/g, ' ')}
+                </Badge>
+              ))}
+            </div>
+          )}
         </Card>
       )}
 
