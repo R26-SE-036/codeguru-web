@@ -115,6 +115,7 @@ export default function AnalyticsPage() {
                 <span className="text-sm text-muted">
                   {sessionDuration(detail.startedAt, detail.endedAt)}
                   {detail.status === 'ACTIVE' ? ' · still running' : ''}
+                  {detail.status === 'EXPIRED' ? ' · expired, nobody ended it' : ''}
                 </span>
               )}
             </div>

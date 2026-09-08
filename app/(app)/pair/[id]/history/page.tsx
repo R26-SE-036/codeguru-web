@@ -174,8 +174,20 @@ export default function SessionHistoryPage({
             {session.joinCode}
           </span>
         </span>
-        <Badge tone={session.status === 'ACTIVE' ? 'ok' : 'neutral'}>
-          {session.status === 'ACTIVE' ? 'Active' : 'Finished'}
+        {/* EXPIRED is its own state: closed by the idle sweep after nobody
+            touched it for half an hour, not finished by anybody. Showing it as
+            "Finished" would make an abandoned attempt read like a completed
+            one, here and in the record this page exists to present. */}
+        <Badge
+          tone={
+            session.status === 'ACTIVE' ? 'ok' : session.status === 'EXPIRED' ? 'warn' : 'neutral'
+          }
+        >
+          {session.status === 'ACTIVE'
+            ? 'Active'
+            : session.status === 'EXPIRED'
+              ? 'Expired'
+              : 'Finished'}
         </Badge>
         {session.members?.map((member) => (
           <span key={member.userId} className="text-body">

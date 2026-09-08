@@ -69,15 +69,30 @@ async function proxy(
    */
   let refreshedCookie: string | null = null;
 
-  if (!token && service === 'pair') {
+  /**
+   * Trade the platform token for a fresh PairPath one, recording it on the
+   * session so the next request does not have to.
+   *
+   * Safe to call at any time, and safe to call concurrently. Unlike a Code
+   * Coach refresh - which rotates the refresh token and so must happen in
+   * exactly one place, see the note at the top of middleware.ts - /auth/exchange
+   * mints a token from the user row and invalidates nothing. Two requests
+   * exchanging at once both get a working token and neither breaks the other,
+   * which matters because the /pair page fetches topics and sessions in
+   * parallel and both will arrive here needing the same repair.
+   */
+  const exchangePair = async (): Promise<string | null> => {
     const exchanged = await exchangeForPairPath(session.accessToken);
+    if (!exchanged) return null;
 
-    if (exchanged) {
-      session.pairPathToken = exchanged.token;
-      session.pairPathUserId = exchanged.userId;
-      token = exchanged.token;
-      refreshedCookie = await sealSession(session);
-    }
+    session.pairPathToken = exchanged.token;
+    session.pairPathUserId = exchanged.userId;
+    refreshedCookie = await sealSession(session);
+    return exchanged.token;
+  };
+
+  if (!token && service === 'pair') {
+    token = await exchangePair();
   }
 
   if (!token) {
@@ -97,27 +112,67 @@ async function proxy(
   request.headers.forEach((value, key) => {
     if (!STRIPPED.has(key.toLowerCase())) headers.set(key, value);
   });
-  headers.set('Authorization', `Bearer ${token}`);
 
   const url = upstreamUrl(service, `/${path.join('/')}`, request.nextUrl.search);
 
-  // GET and HEAD must not carry a body; `duplex` is required by undici for any
-  // request that does.
   const method = request.method;
+  // GET and HEAD must not carry a body.
   const hasBody = method !== 'GET' && method !== 'HEAD';
+
+  /*
+   * Buffered, not streamed. A stream can only be sent once, and the retry
+   * below has to send the same request a second time - so streaming the body
+   * straight through would make the first attempt the only possible attempt.
+   * Everything that crosses this proxy is small JSON (a question id, a join
+   * code, an editor buffer), so holding it in memory costs nothing and buys a
+   * retry that is otherwise impossible.
+   */
+  const body = hasBody ? await request.arrayBuffer() : undefined;
+
+  const send = (bearer: string) => {
+    headers.set('Authorization', `Bearer ${bearer}`);
+    return fetch(url, { method, headers, body, redirect: 'manual', cache: 'no-store' });
+  };
 
   let upstream: Response;
   try {
-    upstream = await fetch(url, {
-      method,
-      headers,
-      body: hasBody ? request.body : undefined,
-      // @ts-expect-error - `duplex` is required at runtime for a streamed body
-      // but is missing from the DOM RequestInit type.
-      duplex: hasBody ? 'half' : undefined,
-      redirect: 'manual',
-      cache: 'no-store',
-    });
+    upstream = await send(token);
+
+    /*
+     * ==================== WHY A 401 IS RETRIED HERE ====================
+     * A PairPath access token lives one hour. The platform session cookie
+     * lives seven days, and middleware.ts refreshes the Code Coach token on
+     * every navigation but deliberately carries the PairPath one across
+     * untouched - it has a separate lifetime and no refresh token of its own.
+     *
+     * Nothing renewed it. One hour after signing in, every PairPath request
+     * came back 401, the page reported "Could not load pairing", and it stayed
+     * that way for the remaining six days and twenty-three hours of the
+     * session. Signing out and back in fixed it for another hour. Every other
+     * component kept working throughout, because they carry `accessToken`,
+     * which IS refreshed - so the platform looked healthy and only pairing
+     * looked broken.
+     *
+     * The exchange above already knew how to mint a new one; it just never ran
+     * unless the token was absent. Absent and rejected want the same remedy.
+     * Retrying on the response rather than on a decoded `exp` also covers the
+     * cases a clock cannot see: a restarted service, a rotated signing secret,
+     * a user row that no longer exists.
+     *
+     * Once only, and never when the token was just minted - `refreshedCookie`
+     * is set by exchangePair and is the record that this request has already
+     * had its one attempt. A second 401 is a real rejection and is passed
+     * through to the caller.
+     * ===================================================================
+     */
+    if (upstream.status === 401 && service === 'pair' && !refreshedCookie) {
+      // Discard the rejected response before replacing it, so undici can
+      // release the connection instead of holding an unread body.
+      await upstream.body?.cancel();
+
+      const fresh = await exchangePair();
+      if (fresh) upstream = await send(fresh);
+    }
   } catch (error) {
     // The distinction this platform draws everywhere: a backend that cannot be
     // reached is 503, never 401. Answering 401 would make an outage look like a
