@@ -37,6 +37,53 @@ export class ApiError extends Error {
 
 export type Service = 'coach' | 'study' | 'pair' | 'play';
 
+/**
+ * The reason a request failed, out of three different error shapes.
+ *
+ * ================= WHY THIS IS NOT ONE FIELD READ =================
+ * The four backends are three frameworks, and each words a failure its own
+ * way:
+ *
+ *   FastAPI   { detail: "Not signed in." }                 coach, study
+ *   NestJS    { statusCode, message, error: "Bad Request" } pair
+ *   Express   { error: "userId is required" }              play
+ *
+ * This used to read `detail`, then `error`. For NestJS that lands on `error` -
+ * which holds the HTTP status phrase, not the reason - so a student who tried
+ * to join a session that already had two people in it was told "Bad Request".
+ * The API had said "That session already has two people in it." and the words
+ * were thrown away one layer from the screen.
+ *
+ * `message` is therefore read before `error`, and `error` still works for
+ * Express, which puts the real reason there. NestJS's ValidationPipe reports
+ * `message` as an ARRAY of failed constraints, so that case is joined rather
+ * than rendered as "[object Object]".
+ * ==================================================================
+ *
+ * Exported for its own sake: it is a pure function with three framework
+ * conventions and two fallbacks folded into it, and it is the piece worth
+ * testing first when this app grows a test runner.
+ */
+export function errorMessage(body: unknown, status: number): string {
+  const payload = body as {
+    detail?: unknown;
+    message?: unknown;
+    error?: unknown;
+  } | null;
+
+  for (const candidate of [payload?.detail, payload?.message, payload?.error]) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate;
+
+    // ValidationPipe: ["joinCode must be a string", "joinCode should not be empty"]
+    if (Array.isArray(candidate)) {
+      const parts = candidate.filter((part): part is string => typeof part === 'string' && !!part.trim());
+      if (parts.length) return parts.join('. ');
+    }
+  }
+
+  return `Request failed (${status}).`;
+}
+
 async function request<T>(
   service: Service,
   path: string,
@@ -72,11 +119,7 @@ async function request<T>(
   }
 
   if (!response.ok) {
-    const detail =
-      (body as { detail?: string; error?: string })?.detail ??
-      (body as { error?: string })?.error ??
-      `Request failed (${response.status}).`;
-    throw new ApiError(detail, response.status);
+    throw new ApiError(errorMessage(body, response.status), response.status);
   }
 
   return body as T;
