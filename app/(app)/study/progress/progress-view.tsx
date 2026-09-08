@@ -22,6 +22,7 @@ import {
 import {
   ArrowLeft,
   Brain,
+  ChevronDown,
   Clock3,
   Layers,
   Target,
@@ -454,11 +455,11 @@ export function ProgressView() {
         <>
           {/* ── What the model believes ─────────────────────────────────── */}
           {mastery.length > 0 && (
-            <section>
-              <SectionTitle hint="Bayesian Knowledge Tracing">
-                What the model believes you know
-              </SectionTitle>
-
+            <CollapsibleSection
+              id="mastery"
+              title="What the model believes you know"
+              hint="Bayesian Knowledge Tracing"
+            >
               <Card className="divide-y divide-line overflow-hidden">
                 {mastery.map((item) => {
                   const known = Math.round(item.probability_known * 100);
@@ -516,7 +517,7 @@ export function ProgressView() {
                   );
                 })}
               </Card>
-            </section>
+            </CollapsibleSection>
           )}
 
           <div className="grid gap-6 lg:grid-cols-2">
@@ -677,11 +678,12 @@ export function ProgressView() {
           )}
 
           {/* ── The log ─────────────────────────────────────────────────── */}
-          <section>
-            <SectionTitle hint={`${attempts?.length ?? 0} recorded`}>
-              Every attempt
-            </SectionTitle>
-
+          <CollapsibleSection
+            id="attempts"
+            title="Every attempt"
+            hint={`${attempts?.length ?? 0} recorded`}
+            defaultOpen={false}
+          >
             <Card className="divide-y divide-line overflow-hidden">
               {attempts?.map((attempt, position) => {
                 const percent = Math.round(attempt.percentage);
@@ -736,7 +738,7 @@ export function ProgressView() {
                 );
               })}
             </Card>
-          </section>
+          </CollapsibleSection>
 
           <p className="flex items-start gap-2 text-xs text-muted">
             <Brain size={14} aria-hidden className="mt-0.5 shrink-0" />
@@ -763,4 +765,87 @@ function formatDuration(seconds: number): string {
 
   const hours = Math.floor(minutes / 60);
   return `${hours}h ${String(minutes % 60).padStart(2, '0')}m`;
+}
+
+
+/**
+ * A section that can be folded away, and stays folded.
+ *
+ * This page is long: mastery per concept, two charts, and every attempt ever
+ * recorded - twenty-six of them already, and it only grows. Reaching the log
+ * meant scrolling past everything else, and reaching anything else meant
+ * scrolling past the log.
+ *
+ * The state is per browser, not per account. It is a reading preference about
+ * one page, and round-tripping it through the API would make it a thing the
+ * server has to store and the student has to wait for.
+ *
+ * Written on toggle, read in an effect rather than in the initial state: the
+ * server renders this too, where localStorage does not exist, and seeding
+ * state from it directly gives React a first client render that disagrees
+ * with the server's HTML.
+ */
+function CollapsibleSection({
+  id,
+  title,
+  hint,
+  defaultOpen = true,
+  children,
+}: {
+  id: string;
+  title: string;
+  hint?: React.ReactNode;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const storageKey = `codeguru:progress:${id}`;
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(storageKey);
+      if (saved !== null) setOpen(saved === 'open');
+    } catch {
+      // Private browsing, or storage disabled. The default stands.
+    }
+  }, [storageKey]);
+
+  const toggle = () => {
+    setOpen((wasOpen) => {
+      try {
+        window.localStorage.setItem(storageKey, wasOpen ? 'closed' : 'open');
+      } catch {
+        // Not being able to remember the choice is no reason to refuse it.
+      }
+      return !wasOpen;
+    });
+  };
+
+  return (
+    <section>
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={open}
+          className="cg-focusable group flex items-center gap-1.5 rounded-cg-sm text-base font-semibold text-ink hover:text-accent"
+        >
+          <ChevronDown
+            size={16}
+            strokeWidth={2.4}
+            aria-hidden
+            className={`text-muted transition-transform group-hover:text-accent ${
+              open ? '' : '-rotate-90'
+            }`}
+          />
+          {title}
+        </button>
+        {hint && <span className="text-sm text-muted">{hint}</span>}
+      </div>
+
+      {/* Unmounted rather than hidden: the log renders a row per attempt, and
+          a collapsed section should cost nothing to have on the page. */}
+      {open && children}
+    </section>
+  );
 }

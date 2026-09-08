@@ -180,6 +180,30 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
   // bouncing the same edit between them.
   const lastBroadcast = useRef<string>('');
 
+  // The output pane, so a new result can be scrolled into view - see the
+  // effect below.
+  const outputPane = useRef<HTMLPreElement>(null);
+
+  /*
+    Show the END of a successful run, not the start.
+
+    The pane is a fixed height with its own scrollbar, and a program that
+    prints eleven lines shows nine. Countdown's whole failure mode is one
+    extra line at the bottom - `i >= 0` instead of `i >= 1` prints a trailing
+    0 - so the one line that explains the verdict was the one line reliably
+    out of view. A pair could read correct-looking code, read correct-looking
+    output, and be told they were wrong with no way to see why.
+
+    Only on success. A compile error reads top-down and the first line is the
+    one that matters; jumping to the bottom of a stack of errors would hide it
+    for the same reason.
+  */
+  useEffect(() => {
+    const pane = outputPane.current;
+    if (!pane || !result) return;
+    pane.scrollTop = result.success ? pane.scrollHeight : 0;
+  }, [result]);
+
   const myRole = roles[userId];
   const isNavigator = myRole === 'NAVIGATOR';
 
@@ -423,6 +447,17 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
         />
       )}
 
+      {/*
+        Above the editor, with the interventions - not under the output pane
+        where it used to sit.
+        A hint arrives because a run went wrong, so it appeared below the
+        output, below the fold, at the bottom of a page the pair had no reason
+        to scroll to. The retrieval pipeline ran, the panel rendered, and
+        nobody saw it. Everything the system says to a pair now says it in one
+        place, at the top.
+      */}
+      {hint && <HintPanel hint={hint} className={effectOn('hint_panel')} />}
+
       <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="space-y-3">
           {/*
@@ -477,7 +512,10 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
                 <h3 className="text-sm font-semibold text-ink">Output</h3>
                 <RunVerdict result={result} />
               </div>
-              <pre className="max-h-48 overflow-auto bg-inset p-4 font-mono text-sm text-ink">
+              <pre
+                ref={outputPane}
+                className="max-h-64 overflow-auto bg-inset p-4 font-mono text-sm text-ink"
+              >
                 {result.compileError ||
                   result.stderr ||
                   result.stdout ||
@@ -486,7 +524,6 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
             </Card>
           )}
 
-          {hint && <HintPanel hint={hint} className={effectOn('hint_panel')} />}
         </div>
 
         <aside
