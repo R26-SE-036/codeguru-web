@@ -6,6 +6,8 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import {
   ArrowLeft,
+  CircleCheck,
+  CircleX,
   Eye,
   Keyboard,
   Lightbulb,
@@ -95,6 +97,18 @@ interface RunResult {
   stdout?: string;
   stderr?: string;
   compileError?: string | null;
+  /**
+   * Did the output match what the exercise expects?
+   *
+   * `null` when there is nothing to compare against - the program did not run,
+   * or this exercise has no single right output. Distinct from `false`, and
+   * the reason this is a tri-state rather than a boolean: a pair whose
+   * exercise has no expected output must not be shown a red verdict.
+   *
+   * The expected text itself is never sent. Only this verdict is - see
+   * common/public-select.ts in the API.
+   */
+  correct?: boolean | null;
 }
 
 /**
@@ -461,9 +475,13 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
               <div className="flex items-center gap-2 border-b border-line px-4 py-2.5">
                 <Terminal size={15} strokeWidth={2.2} aria-hidden className="text-muted" />
                 <h3 className="text-sm font-semibold text-ink">Output</h3>
+                <RunVerdict result={result} />
               </div>
               <pre className="max-h-48 overflow-auto bg-inset p-4 font-mono text-sm text-ink">
-                {result.compileError || result.stderr || result.stdout || '(no output)'}
+                {result.compileError ||
+                  result.stderr ||
+                  result.stdout ||
+                  (result.success ? 'The program ran and printed nothing.' : '(no output)')}
               </pre>
             </Card>
           )}
@@ -628,6 +646,35 @@ function HintPanel({ hint, className }: { hint: RagHint; className?: string }) {
  * no explanation reads as a broken page, and "switch roles" means nothing to
  * someone who does not know which one they are in.
  */
+/**
+ * Whether the run produced the answer the exercise wanted.
+ *
+ * Nothing is shown when there is no verdict to give: a program that failed to
+ * compile already says so in the pane below, and an exercise with no recorded
+ * expected output has nothing to compare against. Silence is the honest
+ * result there - a grey "unknown" badge on every run would train the pair to
+ * ignore the one place a real verdict appears.
+ *
+ * Deliberately says nothing about WHY the output differs. The expected text
+ * stays on the server; showing it here would hand over the answer to most of
+ * these exercises.
+ */
+function RunVerdict({ result }: { result: RunResult }) {
+  if (!result.success || result.correct === null || result.correct === undefined) return null;
+
+  return result.correct ? (
+    <Badge tone="ok">
+      <CircleCheck size={13} strokeWidth={2.3} aria-hidden />
+      Matches the expected output
+    </Badge>
+  ) : (
+    <Badge tone="warn">
+      <CircleX size={13} strokeWidth={2.3} aria-hidden />
+      Not the expected output yet
+    </Badge>
+  );
+}
+
 function RoleBadge({ role }: { role?: string }) {
   if (!role) return null;
 
