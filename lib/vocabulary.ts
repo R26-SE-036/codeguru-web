@@ -150,6 +150,9 @@ const COMPONENT_LABELS: Record<string, string> = {
   study_guider: 'Study',
   adaptive_gamification: 'Practice',
   pair_path: 'Pair',
+  // Code Coach's name for pair sessions reported into it - see
+  // collaboration_service.py there.
+  collaborative_studio: 'Pair',
 };
 
 export function formatComponent(value: string | undefined): string {
@@ -165,6 +168,7 @@ export function componentTone(value: string | undefined): string {
     case 'adaptive_gamification':
       return 'bg-hue-play/10 text-hue-play ring-hue-play/25';
     case 'pair_path':
+    case 'collaborative_studio':
       return 'bg-hue-pair/10 text-hue-pair ring-hue-pair/25';
     default:
       return 'bg-hue-insight/10 text-hue-insight ring-hue-insight/25';

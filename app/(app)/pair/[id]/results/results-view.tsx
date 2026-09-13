@@ -64,6 +64,25 @@ export function ResultsView({ sessionId, userId }: { sessionId: string; userId: 
     }
   }, [sessionId]);
 
+  /*
+    Report how this session went to Code Coach, where it moves the student's
+    concept mastery - and, for an exercise the pair did not solve, opens a
+    Study Guider lesson on it.
+
+    Here because every way out of a session ends on this page: whoever ends it
+    goes review then results, their partner is sent the same way by
+    `session_ended`, and a closed session redirects straight here. Fired and
+    forgotten: the route handler builds the outcome on the server and Code
+    Coach records each student's session once, so a reload sends a request
+    that changes nothing, and a failure costs nothing on this page.
+  */
+  useEffect(() => {
+    fetch(`/api/pair/outcome/${encodeURIComponent(sessionId)}`, {
+      method: 'POST',
+      credentials: 'same-origin',
+    }).catch(() => {});
+  }, [sessionId]);
+
   useEffect(() => {
     load();
   }, [load]);
