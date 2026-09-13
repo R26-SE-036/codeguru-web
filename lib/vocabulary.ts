@@ -105,6 +105,18 @@ export function formatConcept(value: string | undefined): string {
 }
 
 /**
+ * "LOOP_UPDATE_WRONG_DIRECTION" -> "Loop update wrong direction".
+ *
+ * Code Coach's error types are constants, written for a classifier. They are
+ * shown to a student when a recommendation says why it was made, so they read
+ * as a phrase - sentence case, no underscores - rather than as an enum value.
+ */
+export function formatErrorType(value: string | undefined | null): string {
+  const words = (value ?? '').toLowerCase().replace(/_/g, ' ').trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : '';
+}
+
+/**
  * How the difficulty was arrived at, as reported by the game endpoint.
  *
  * This is not decoration. `heuristic` means the ML service did not answer and
