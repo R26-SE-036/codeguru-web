@@ -3,7 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, BarChart3, BrainCircuit, History, KeyRound, Loader2, Play, Users } from 'lucide-react';
+import {
+  ArrowRight,
+  BarChart3,
+  BrainCircuit,
+  FlaskConical,
+  History,
+  KeyRound,
+  Loader2,
+  Play,
+  Users,
+} from 'lucide-react';
 
 import { ApiError, api } from '@/lib/api';
 import { FormError } from '@/components/field';
@@ -80,6 +90,20 @@ function partnerName(session: Session, me: string): string | null {
 
   const name = [partner.user?.firstName, partner.user?.lastName].filter(Boolean).join(' ').trim();
   return name || null;
+}
+
+/** GET /research/consent on PairPath - see content/research-consent.ts there. */
+interface ConsentStatus {
+  version: string;
+  statement: {
+    title: string;
+    summary: string;
+    recorded: string[];
+    protections: string[];
+    voluntary: string;
+  };
+  decision: 'GRANTED' | 'DECLINED' | null;
+  current: boolean;
 }
 
 /** One entry from Code Coach's GET /collaboration/me/prompts. */
@@ -201,6 +225,109 @@ const SELECT_CLASS =
   'cg-focusable h-11 w-full rounded-cg border border-line bg-card px-3 text-ink ' +
   'hover:border-line-strong focus-visible:border-accent disabled:opacity-60';
 
+/**
+ * Asking before a student's sessions become research data.
+ *
+ * Shown in full until the student has decided, and again whenever the
+ * statement changes - agreeing to earlier wording is not agreeing to new
+ * wording. Once decided it shrinks to one line saying which way, with a way to
+ * change it: a decision a student cannot find again is not one they can
+ * withdraw.
+ *
+ * Neither button is the primary one. A consent form that makes yes the easy
+ * click is nudging the answer it exists to ask for.
+ */
+function ConsentCard({
+  consent,
+  busy,
+  onDecide,
+}: {
+  consent: ConsentStatus;
+  busy: boolean;
+  onDecide: (decision: 'GRANTED' | 'DECLINED') => void;
+}) {
+  const [reopened, setReopened] = useState(false);
+  const decided = consent.decision !== null && consent.current;
+
+  if (decided && !reopened) {
+    return (
+      <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
+        <FlaskConical size={15} strokeWidth={2.2} aria-hidden />
+        {consent.decision === 'GRANTED'
+          ? 'Your pair sessions are included in the research data.'
+          : 'Your pair sessions are not included in the research data.'}
+        <button
+          type="button"
+          onClick={() => setReopened(true)}
+          className="cg-focusable rounded font-semibold text-accent hover:underline"
+        >
+          Change
+        </button>
+      </p>
+    );
+  }
+
+  const { statement } = consent;
+  const choose = (decision: 'GRANTED' | 'DECLINED') => {
+    onDecide(decision);
+    setReopened(false);
+  };
+
+  return (
+    <Card className="p-6">
+      <div className="flex items-start gap-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-cg bg-hue-insight/10 text-hue-insight">
+          <FlaskConical size={18} strokeWidth={2.2} aria-hidden />
+        </span>
+        <div className="min-w-0">
+          <h2 className="font-bold text-ink">{statement.title}</h2>
+          <p className="mt-1 text-sm text-body">{statement.summary}</p>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-5 sm:grid-cols-2">
+        <div>
+          <h3 className="text-sm font-semibold text-ink">What would be included</h3>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-body">
+            {statement.recorded.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold text-ink">How you are protected</h3>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-body">
+            {statement.protections.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <p className="mt-5 text-sm text-muted">{statement.voluntary}</p>
+
+      <div className="mt-5 flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => choose('GRANTED')}
+          className={buttonClass({ variant: 'secondary', size: 'sm' })}
+        >
+          Include my sessions
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => choose('DECLINED')}
+          className={buttonClass({ variant: 'secondary', size: 'sm' })}
+        >
+          Don&apos;t include them
+        </button>
+      </div>
+    </Card>
+  );
+}
+
 export function PairView({ userId }: { userId: string }) {
   const router = useRouter();
 
@@ -213,6 +340,8 @@ export function PairView({ userId }: { userId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [coachPrompts, setCoachPrompts] = useState<CoachPrompt[]>([]);
+  const [consent, setConsent] = useState<ConsentStatus | null>(null);
+  const [consentBusy, setConsentBusy] = useState(false);
 
   const recommendations = useMemo(
     () => recommend(coachPrompts, topics ?? [], sessions),
@@ -221,7 +350,7 @@ export function PairView({ userId }: { userId: string }) {
 
   const load = useCallback(async () => {
     try {
-      const [topicList, mySessions, prompts] = await Promise.all([
+      const [topicList, mySessions, prompts, consentStatus] = await Promise.all([
         api.get<Topic[]>('pair', '/topics'),
         api.get<Session[]>('pair', '/sessions/my').catch(() => [] as Session[]),
         // Code Coach, not PairPath, and never fatal: a student with no history,
@@ -231,10 +360,14 @@ export function PairView({ userId }: { userId: string }) {
           .get<{ prompts?: CoachPrompt[] }>('coach', '/collaboration/me/prompts?limit=25')
           .then((response) => response?.prompts ?? [])
           .catch(() => [] as CoachPrompt[]),
+        // Never fatal, and never assumed: no answer means the card is not
+        // shown, not that the student agreed.
+        api.get<ConsentStatus>('pair', '/research/consent').catch(() => null),
       ]);
       setTopics(topicList);
       setSessions(mySessions);
       setCoachPrompts(prompts);
+      setConsent(consentStatus);
     } catch (err) {
       // Unavailable is a 503 from the proxy, distinct from a rejection. Saying
       // which one it is stops a student trying to sign in again over an outage
@@ -262,6 +395,18 @@ export function PairView({ userId }: { userId: string }) {
       .then(setQuestions)
       .catch(() => setQuestions([]));
   }, [topicId]);
+
+  async function decideConsent(decision: 'GRANTED' | 'DECLINED') {
+    setConsentBusy(true);
+    setError(null);
+    try {
+      setConsent(await api.post<ConsentStatus>('pair', '/research/consent', { decision }));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not save that choice. Try again.');
+    } finally {
+      setConsentBusy(false);
+    }
+  }
 
   async function createSession(id: string = questionId) {
     if (!id) return;
@@ -320,6 +465,8 @@ export function PairView({ userId }: { userId: string }) {
       />
 
       {error && <FormError>{error}</FormError>}
+
+      {consent && <ConsentCard consent={consent} busy={consentBusy} onDecide={decideConsent} />}
 
       {/* Only when there is something to say. A student with no Code Coach
           history gets no card at all rather than an empty one - an empty
