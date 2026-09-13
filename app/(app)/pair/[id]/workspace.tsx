@@ -69,6 +69,7 @@ interface Session {
   id: string;
   joinCode: string;
   status: string;
+  startedAt?: string;
   finalCode?: string;
   question?: {
     title?: string;
@@ -173,6 +174,20 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
   const [intervention, setIntervention] = useState<Intervention | null>(null);
   const [hint, setHint] = useState<RagHint | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  /*
+    Set once the program has produced the expected output - by a run this tab
+    saw, or, for a student rejoining, by the session's own record. `dismissed`
+    hides the banner and nothing else: "Keep going" does not un-solve the
+    exercise.
+  */
+  const [solved, setSolved] = useState<{ seconds: number | null; dismissed: boolean } | null>(
+    null,
+  );
+
+  // Read by the socket handlers, which are registered once and so cannot see
+  // state - a ref is how they learn when the session began.
+  const startedAt = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // The last value we broadcast. Without it, an incoming code_update sets state,
@@ -223,7 +238,21 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
         setCode(data.code);
       },
       discussion_note: (data: ChatNote) => setNotes((prev) => [...prev, data]),
-      code_result: (data: RunResult) => setResult(data),
+      code_result: (data: RunResult) => {
+        setResult(data);
+        // The first match solves it. A later run - an edge case, a tidy-up -
+        // does not take the moment back, and a later wrong run does not
+        // un-solve an exercise the pair already got right.
+        if (data.correct === true) {
+          const seconds =
+            startedAt.current === null
+              ? null
+              : Math.max(0, Math.round((Date.now() - startedAt.current) / 1000));
+          setSolved(
+            (previous) => previous ?? { seconds, dismissed: wasDismissed(sessionId) },
+          );
+        }
+      },
       intervention: (data: Intervention) => setIntervention(data),
       // A hint accompanies a logic struggle. It arrives separately from the
       // intervention that triggered it, and after it.
@@ -255,6 +284,7 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
       .then((data) => {
         if (!live) return;
         setSession(data);
+        startedAt.current = data.startedAt ? Date.parse(data.startedAt) : null;
         const initial = data.finalCode || data.question?.starterCode || '';
         lastBroadcast.current = initial;
         setCode(initial);
@@ -267,6 +297,24 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
             : 'Could not load this session.',
         );
       });
+
+    // Already solved - a student rejoining, a reload after the moment - comes
+    // from the session's record, not from a run this tab happened to see.
+    api
+      .get<{ solved: boolean | null; secondsToSolve: number | null }>(
+        'pair',
+        `/sessions/${sessionId}/outcome`,
+      )
+      .then((outcome) => {
+        if (live && outcome?.solved) {
+          setSolved(
+            (previous) =>
+              previous ?? { seconds: outcome.secondsToSolve, dismissed: wasDismissed(sessionId) },
+          );
+        }
+      })
+      .catch(() => {});
+
     return () => {
       live = false;
     };
@@ -308,6 +356,16 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
     },
     [socket, sessionId],
   );
+
+  /**
+   * End the session for both students. The room is told by the server, once
+   * the row says COMPLETED - so the partner leaves too instead of sitting in a
+   * dead session. Shared by the header button and the Solved banner.
+   */
+  async function endSession() {
+    await api.post('pair', `/sessions/${sessionId}/end`, { finalCode: code });
+    router.push(`/pair/${sessionId}/review`);
+  }
 
   function send() {
     const note = draft.trim();
@@ -391,12 +449,7 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
           </button>
           <button
             type="button"
-            onClick={async () => {
-              // The room is told by the server, once the row says COMPLETED -
-              // so the partner leaves too instead of sitting in a dead session.
-              await api.post('pair', `/sessions/${sessionId}/end`, { finalCode: code });
-              router.push(`/pair/${sessionId}/review`);
-            }}
+            onClick={endSession}
             className={buttonClass({ size: 'sm' })}
           >
             End session
@@ -457,6 +510,17 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
         place, at the top.
       */}
       {hint && <HintPanel hint={hint} className={effectOn('hint_panel')} />}
+
+      {solved && !solved.dismissed && (
+        <SolvedBanner
+          seconds={solved.seconds}
+          onFinish={endSession}
+          onKeepGoing={() => {
+            rememberDismissed(sessionId);
+            setSolved((previous) => (previous ? { ...previous, dismissed: true } : previous));
+          }}
+        />
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="space-y-3">
@@ -709,6 +773,90 @@ function RunVerdict({ result }: { result: RunResult }) {
       <CircleX size={13} strokeWidth={2.3} aria-hidden />
       Not the expected output yet
     </Badge>
+  );
+}
+
+/**
+ * Whether "Keep going" was pressed for this session, in this tab.
+ *
+ * sessionStorage, so a reload does not bring the banner back but a new visit
+ * does. Wrapped, because storage can be unavailable - a private window, a
+ * blocked site - and not being able to remember a dismissal is no reason to
+ * break the workspace.
+ */
+function wasDismissed(sessionId: string): boolean {
+  try {
+    return window.sessionStorage.getItem(`codeguru:pair:${sessionId}:solved-dismissed`) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function rememberDismissed(sessionId: string) {
+  try {
+    window.sessionStorage.setItem(`codeguru:pair:${sessionId}:solved-dismissed`, '1');
+  } catch {
+    // Nothing to do: the banner is hidden for now, it just may come back.
+  }
+}
+
+/**
+ * The moment the program is right.
+ *
+ * ================ A MOMENT, NOT JUST A BADGE ================
+ * The verdict on the output pane says one run matched. It said nothing about
+ * what that means for the session - so a pair that had solved the exercise
+ * carried on editing a finished program, or ended it without knowing they had
+ * got there, and the one thing worth marking passed unmarked.
+ *
+ * Both students see it, because the run result goes to the whole room. It
+ * offers the next step without forcing it - a pair may want to try an edge
+ * case or tidy up first.
+ * ============================================================
+ */
+function SolvedBanner({
+  seconds,
+  onFinish,
+  onKeepGoing,
+}: {
+  seconds: number | null;
+  onFinish: () => void;
+  onKeepGoing: () => void;
+}) {
+  const minutes = seconds === null ? null : Math.max(1, Math.round(seconds / 60));
+
+  return (
+    <div role="status">
+      <Card className="flex flex-wrap items-center justify-between gap-4 border-l-4 border-l-ok p-4">
+        <div className="flex items-center gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-cg bg-ok/10 text-ok">
+            <CircleCheck size={20} strokeWidth={2.3} aria-hidden />
+          </span>
+          <div>
+            <p className="font-semibold text-ink">
+              Solved — your program produces the expected output.
+            </p>
+            <p className="text-sm text-muted">
+              {minutes === null ? 'Worked out together.' : `Worked out together in ${minutes} min.`}{' '}
+              Finish when you are both happy with it.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onKeepGoing}
+            className={buttonClass({ variant: 'secondary', size: 'sm' })}
+          >
+            Keep going
+          </button>
+          <button type="button" onClick={onFinish} className={buttonClass({ size: 'sm' })}>
+            Finish and review
+          </button>
+        </div>
+      </Card>
+    </div>
   );
 }
 
