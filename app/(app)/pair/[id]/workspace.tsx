@@ -12,6 +12,7 @@ import {
   Keyboard,
   Lightbulb,
   MessagesSquare,
+  MousePointerClick,
   Play,
   RefreshCw,
   SendHorizonal,
@@ -20,6 +21,7 @@ import {
   TriangleAlert,
   Users,
 } from 'lucide-react';
+import type { OnMount } from '@monaco-editor/react';
 
 import { ApiError, api } from '@/lib/api';
 import { usePairSocket } from '@/lib/use-pair-socket';
@@ -143,6 +145,22 @@ interface RagHint {
 
 type Roles = Record<string, string>;
 
+/** A line the navigator is pointing at. `at` is when it arrived, for the glow. */
+interface Pointer {
+  line: number;
+  userId: string;
+  at: number;
+}
+
+type EditorInstance = Parameters<OnMount>[0];
+type MonacoApi = Parameters<OnMount>[1];
+
+/**
+ * How long a newly pointed line glows before it settles into a plain
+ * highlight - three runs of cg-point-glow in globals.css.
+ */
+const POINTER_GLOW_MS = 3300;
+
 /**
  * uiEffect -> what it looks like.
  *
@@ -174,6 +192,16 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
   const [intervention, setIntervention] = useState<Intervention | null>(null);
   const [hint, setHint] = useState<RagHint | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [pointer, setPointer] = useState<Pointer | null>(null);
+
+  // The editor itself, for drawing the pointed-at line. Monaco decorations
+  // are imperative - there is no prop for them - so the instance is kept.
+  const editorRef = useRef<EditorInstance | null>(null);
+  const monacoRef = useRef<MonacoApi | null>(null);
+  const pointerDecorations = useRef<ReturnType<
+    EditorInstance['createDecorationsCollection']
+  > | null>(null);
+  const [editorReady, setEditorReady] = useState(false);
 
   /*
     Set once the program has produced the expected output - by a run this tab
@@ -232,7 +260,13 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
       },
       role_switch: (data: { roles?: Roles }) => {
         if (data.roles) setRoles(data.roles);
+        // A pointer belongs to the navigator who made it. After a swap that
+        // student is driving, and their pointer is directions nobody needs.
+        setPointer(null);
       },
+      line_pointed: (data: { line: number | null; userId: string }) =>
+        setPointer(data.line ? { line: data.line, userId: data.userId, at: Date.now() } : null),
+      point_rejected: (data: { message?: string }) => setNotice(data?.message ?? null),
       code_update: (data: { code: string }) => {
         lastBroadcast.current = data.code;
         setCode(data.code);
@@ -262,7 +296,11 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
       edit_rejected: (data: { message?: string }) => setNotice(data?.message ?? null),
       role_switch_rejected: (data: { message?: string }) => setNotice(data?.message ?? null),
       user_joined: () => setPartnerConnected(true),
-      user_left: () => setPartnerConnected(false),
+      user_left: (data: { userId?: string }) => {
+        setPartnerConnected(false);
+        // A navigator who has left is not pointing at anything.
+        setPointer((current) => (current && current.userId === data?.userId ? null : current));
+      },
       session_ended: () => router.push(`/pair/${sessionId}/review`),
       // Reopening a finished session used to connect, write a JOIN event and
       // accept edits onto a closed record. The gateway refuses now; this is
@@ -356,6 +394,91 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
     },
     [socket, sessionId],
   );
+
+  /*
+   * Point the driver at a line, or let go of it - clicking the line already
+   * pointed at clears it.
+   *
+   * Through a ref because Monaco's mouse listener is registered once, when the
+   * editor mounts, and would otherwise see the role and the pointer as they
+   * were at that moment. use-pair-socket keeps its handlers the same way.
+   */
+  const pointAt = useRef<(line: number) => void>(() => {});
+  pointAt.current = (line: number) => {
+    if (!isNavigator || status !== 'connected') return;
+    const next = pointer?.line === line ? null : line;
+    socket.current?.emit('point_at_line', { sessionId, line: next });
+    setPointer(next === null ? null : { line: next, userId, at: Date.now() });
+  };
+
+  /** Either partner lets go. The driver's "Got it" tells the navigator it was seen. */
+  function clearPointer() {
+    socket.current?.emit('point_at_line', { sessionId, line: null });
+    setPointer(null);
+  }
+
+  const onEditorMount: OnMount = (editor, monaco) => {
+    editorRef.current = editor;
+    monacoRef.current = monaco;
+    pointerDecorations.current = editor.createDecorationsCollection();
+
+    // A click on a line number, not on the code: the navigator still selects
+    // text to quote it in the chat, and that must not move the pointer.
+    editor.onMouseDown((event) => {
+      const { type, position } = event.target;
+      const onGutter =
+        type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS ||
+        type === monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS;
+      if (onGutter && position) pointAt.current(position.lineNumber);
+    });
+
+    setEditorReady(true);
+  };
+
+  /*
+   * Draw the pointed-at line.
+   *
+   * Redrawn when the code changes, not only when the pointer does. The
+   * driver's editor carries a decoration along as they type, but the
+   * navigator's receives each edit as a whole new text and does not - left
+   * alone, the two screens would soon be marking different lines. Pinning it
+   * to the line NUMBER keeps both partners looking at the same place, which is
+   * the whole point of pointing.
+   */
+  useEffect(() => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    const decorations = pointerDecorations.current;
+    if (!editorReady || !editor || !monaco || !decorations) return;
+
+    const lineCount = editor.getModel()?.getLineCount() ?? 0;
+    if (!pointer || pointer.line > lineCount) {
+      decorations.clear();
+      return;
+    }
+
+    // The glow is for the driver, and only while the pointer is new. The
+    // navigator already knows where they pointed.
+    const fresh = !isNavigator && Date.now() - pointer.at < POINTER_GLOW_MS;
+    decorations.set([
+      {
+        range: new monaco.Range(pointer.line, 1, pointer.line, 1),
+        options: {
+          isWholeLine: true,
+          className: fresh ? 'cg-pointed-line cg-pointed-line-glow' : 'cg-pointed-line',
+          linesDecorationsClassName: 'cg-pointed-gutter',
+        },
+      },
+    ]);
+  }, [pointer, code, isNavigator, editorReady]);
+
+  // Bring a new pointer into view on the driver's screen - once, when it
+  // arrives. Not on every redraw: pulling the view away from where the driver
+  // is typing, keystroke by keystroke, would make the editor unusable.
+  useEffect(() => {
+    if (!editorReady || isNavigator || !pointer) return;
+    editorRef.current?.revealLineInCenterIfOutsideViewport(pointer.line);
+  }, [pointer, isNavigator, editorReady]);
 
   /**
    * End the session for both students. The room is told by the server, once
@@ -529,7 +652,11 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
             column resize the editor, which made the editor jump every time a
             message arrived - there is a commit in that repo about exactly this.
           */}
-          <div className="h-[26rem] overflow-hidden rounded-cg-lg border border-line shadow-cg-sm">
+          <div
+            className={`h-[26rem] overflow-hidden rounded-cg-lg border border-line shadow-cg-sm ${
+              isNavigator ? 'cg-editor-pointable' : ''
+            }`}
+          >
             <MonacoEditor
               height="100%"
               defaultLanguage="java"
@@ -538,6 +665,7 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
               theme={monacoTheme}
               value={code}
               onChange={onCodeChange}
+              onMount={onEditorMount}
               options={{
                 minimap: { enabled: false },
                 fontSize: 14,
@@ -562,11 +690,42 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
               <Play size={15} strokeWidth={2.4} aria-hidden />
               Run
             </button>
-            <span className="text-sm text-muted">
-              {isNavigator
-                ? 'You are navigating — read the code, spot the problem, say it in the chat.'
-                : 'Runs in an isolated sandbox, not on the server.'}
+            {/*
+              One live region, always mounted, so a pointer arriving is
+              announced - a region that appears together with its text is not.
+              Here rather than above the editor so the editor does not jump
+              down the page every time a line is pointed at.
+            */}
+            <span role="status" className="flex items-center gap-2 text-sm text-muted">
+              {pointer && (
+                <MousePointerClick
+                  size={15}
+                  strokeWidth={2.2}
+                  aria-hidden
+                  className="shrink-0 text-accent"
+                />
+              )}
+              {pointer ? (
+                <span className="text-body">
+                  {isNavigator
+                    ? `Pointing your driver at line ${pointer.line}.`
+                    : `Your navigator is pointing at line ${pointer.line}.`}
+                </span>
+              ) : isNavigator ? (
+                'You are navigating — click a line number to point your driver at it, then say why in the chat.'
+              ) : (
+                'Runs in an isolated sandbox, not on the server.'
+              )}
             </span>
+            {pointer && (
+              <button
+                type="button"
+                onClick={clearPointer}
+                className={buttonClass({ variant: 'ghost', size: 'sm' })}
+              >
+                {isNavigator ? 'Stop pointing' : 'Got it'}
+              </button>
+            )}
           </div>
 
           {result && (

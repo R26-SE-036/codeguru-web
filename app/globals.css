@@ -144,3 +144,45 @@
     animation: cg-sweep 1.6s var(--cg-ease) infinite;
   }
 }
+
+/* ── A line the navigator is pointing at ──────────────────────────────────
+   Monaco decorations take a class name and nothing else, so these cannot be
+   Tailwind utilities. They sit outside @layer on purpose: Tailwind drops an
+   @layer class it does not see used, and these exist only as strings handed
+   to Monaco at runtime.
+
+   The glow runs three times and settles rather than pulsing for as long as
+   the pointer stands - a line that never stops moving is a line the driver
+   learns to ignore. Reduced motion is already handled at the base layer. */
+.cg-pointed-line {
+  background: rgb(var(--cg-rgb-accent) / 0.14);
+}
+
+.cg-pointed-line-glow {
+  animation: cg-point-glow 1.1s var(--cg-ease) 3;
+}
+
+.cg-pointed-gutter {
+  background: rgb(var(--cg-rgb-accent));
+  border-radius: 2px;
+  margin-left: 4px;
+  width: 4px !important;
+}
+
+@keyframes cg-point-glow {
+  0%,
+  100% {
+    background: rgb(var(--cg-rgb-accent) / 0.14);
+  }
+
+  50% {
+    background: rgb(var(--cg-rgb-accent) / 0.38);
+  }
+}
+
+/* The navigator points by clicking a line number, so show that it is
+   clickable. Scoped to the navigator's editor: on the driver's, the gutter
+   does what Monaco always does. */
+.cg-editor-pointable .monaco-editor .margin-view-overlays .line-numbers {
+  cursor: pointer;
+}
