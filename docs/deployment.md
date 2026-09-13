@@ -15,9 +15,9 @@ Lambda.
 | `codeguru-web` | 3000 | via `/*` | this repo **[not built]** |
 | `code-coach-api` | 8080 | via `/api/v1/*` | `code-coach/Dockerfile` |
 | `study-guider-api` | 8010 | no | `Study-Guider/backend/Dockerfile` |
-| `pairpath-api` | 3001 | `/pair-ws/*` only | `Pair_Path/api/Dockerfile` |
+| `pairpath-api` | 3001 | `/pair-ws/*` only | `Pair_Path/backend/Dockerfile` |
 | `gamification-api` | 3002 | no | `adaptive-gamification-engine/backend/Dockerfile` |
-| `pairpath-ml` | 8020 | no | `Pair_Path/ml-service/Dockerfile` |
+| `pairpath-ml` | 8020 | no | `Pair_Path/backend/ml/Dockerfile` |
 | `gamification-ml` | 5000 | no | `adaptive-gamification-engine/ml-service/Dockerfile` |
 | `codeguru-code-runner` | — | no | `Pair_Path/code-runner-lambda/` (Lambda) |
 

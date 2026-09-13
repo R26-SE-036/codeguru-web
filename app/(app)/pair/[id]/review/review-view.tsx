@@ -23,13 +23,24 @@ import { Card, EmptyState, PageHeader, buttonClass } from '@/components/ui';
 interface ReviewPayload {
   questions?: string[];
   alreadySubmitted?: boolean;
+  question?: { title?: string; description?: string };
 }
 
 export function ReviewView({ sessionId }: { sessionId: string }) {
   const router = useRouter();
 
   const [questions, setQuestions] = useState<string[] | null>(null);
-  const [answers, setAnswers] = useState<Record<number, string>>({});
+  /*
+   * Yes or no, not free text.
+   *
+   * This was a Record<number, string> filled from textareas, and the API
+   * validates `answers` as boolean[] - so a filled-in review was rejected with
+   * a 400 and an empty one was accepted, scoring zero. The prompts have always
+   * been yes/no questions ("Did the loop stop before numbers.length?"), the
+   * schema calls the column "Array of True/False answers", and the score is
+   * the number that match what the exercise expected.
+   */
+  const [answers, setAnswers] = useState<Record<number, boolean>>({});
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -64,7 +75,7 @@ export function ReviewView({ sessionId }: { sessionId: string }) {
       // Ordered by question index, not by object key order. The API pairs each
       // answer with its prompt positionally, so an unordered array silently
       // attaches answers to the wrong questions.
-      const ordered = questions.map((_, index) => answers[index] ?? '');
+      const ordered = questions.map((_, index) => answers[index] === true);
       await api.post('pair', `/reviews/${sessionId}/submit`, { answers: ordered });
       router.push(`/pair/${sessionId}/results`);
     } catch (err) {
@@ -146,10 +157,7 @@ export function ReviewView({ sessionId }: { sessionId: string }) {
         <ol className="space-y-4">
           {questions.map((question, index) => (
             <Card as="li" key={index} className="p-5">
-              <label
-                htmlFor={`answer-${index}`}
-                className="flex gap-3 font-semibold text-ink"
-              >
+              <p id={`answer-${index}`} className="flex gap-3 font-semibold text-ink">
                 <span
                   aria-hidden
                   className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-hue-pair/10 text-xs font-bold text-hue-pair"
@@ -157,18 +165,26 @@ export function ReviewView({ sessionId }: { sessionId: string }) {
                   {index + 1}
                 </span>
                 {question}
-              </label>
+              </p>
 
-              <textarea
-                id={`answer-${index}`}
-                rows={3}
-                value={answers[index] ?? ''}
-                onChange={(event) =>
-                  setAnswers((prev) => ({ ...prev, [index]: event.target.value }))
-                }
-                placeholder="Your answer…"
-                className="cg-focusable mt-3 w-full resize-y rounded-cg border border-line bg-card-alt px-3.5 py-2.5 text-ink placeholder:text-faint-nontext hover:border-line-strong focus-visible:border-accent"
-              />
+              <div role="radiogroup" aria-labelledby={`answer-${index}`} className="mt-3 flex gap-2">
+                {[true, false].map((value) => (
+                  <button
+                    key={String(value)}
+                    type="button"
+                    role="radio"
+                    aria-checked={answers[index] === value}
+                    onClick={() => setAnswers((prev) => ({ ...prev, [index]: value }))}
+                    className={buttonClass({
+                      variant: answers[index] === value ? 'primary' : 'secondary',
+                      size: 'sm',
+                      className: 'min-w-[5rem]',
+                    })}
+                  >
+                    {value ? 'Yes' : 'No'}
+                  </button>
+                ))}
+              </div>
             </Card>
           ))}
         </ol>
@@ -179,7 +195,7 @@ export function ReviewView({ sessionId }: { sessionId: string }) {
       <button
         type="button"
         onClick={submit}
-        disabled={busy || questions.length === 0}
+        disabled={busy || questions.length === 0 || Object.keys(answers).length < questions.length}
         className={buttonClass({ size: 'lg' })}
       >
         {busy ? (

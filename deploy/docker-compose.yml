@@ -37,6 +37,35 @@ name: codeguru
 x-restart: &restart
   restart: unless-stopped
 
+# ── Readiness, not liveness ──────────────────────────────────────────────────
+# `depends_on` on its own waits for a container to START, which is not the same
+# as being able to answer. On the first `docker compose up` the API container
+# reported itself started, Prisma logged
+#
+#     Can't reach database server at ...neon.tech:5432   errorCode: P1001
+#
+# because Neon suspends a serverless Postgres after inactivity and takes several
+# seconds to wake - and a login five seconds later returned 503. Nothing was
+# broken; the stack simply began accepting traffic before it could serve it.
+#
+# So every service is probed, and everything downstream waits for
+# `condition: service_healthy`. start_period covers the slow first connection
+# without counting those attempts as failures.
+x-health: &health
+  interval: 10s
+  timeout: 5s
+  retries: 12
+  start_period: 40s
+
+# node:*-alpine has busybox wget and no curl.
+x-wget: &wget
+  <<: *health
+
+# python:*-slim has neither, so the probe uses the interpreter that is already
+# there rather than installing a package into a runtime image for one check.
+x-pyget: &pyget
+  <<: *health
+
 services:
   # ── Edge ──────────────────────────────────────────────────────────────────
   caddy:
@@ -54,7 +83,8 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - web
+      web:
+        condition: service_healthy
 
   # ── Web tier / BFF ────────────────────────────────────────────────────────
   web:
@@ -75,7 +105,14 @@ services:
       # PairPath and bypass the edge; empty means same-origin through Caddy,
       # which is the whole point of routing /pair-ws/* below.
       NEXT_PUBLIC_PAIR_WS_URL: ""
-    depends_on: [code-coach, study-guider, pairpath-api, gamification-api]
+    healthcheck:
+      <<: *wget
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4200/login"]
+    depends_on:
+      code-coach: {condition: service_healthy}
+      study-guider: {condition: service_healthy}
+      pairpath-api: {condition: service_healthy}
+      gamification-api: {condition: service_healthy}
 
   # ── Identity provider and diagnostics store ───────────────────────────────
   # Everything else verifies its tokens here, so everything else waits for it.
@@ -86,6 +123,9 @@ services:
       dockerfile: Dockerfile
     image: code-coach:local
     env_file: [../../code-coach/backend/.env]
+    healthcheck:
+      <<: *pyget
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
 
   # ── Study Guider ──────────────────────────────────────────────────────────
   study-guider:
@@ -97,19 +137,45 @@ services:
     env_file: [../../Study-Guider/backend/.env]
     environment:
       CODE_COACH_URL: http://code-coach:8080
-    depends_on: [code-coach]
+    healthcheck:
+      <<: *pyget
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/api/health')"]
+    depends_on:
+      code-coach: {condition: service_healthy}
 
   # ── PairPath ──────────────────────────────────────────────────────────────
   pairpath-api:
     <<: *restart
     build:
-      context: ../../Pair_Path/api
+      context: ../../Pair_Path/backend
       dockerfile: Dockerfile
+      args:
+        # Puts javac in the image. Off in the Dockerfile's default because a
+        # deployment runs student code in the Lambda and needs no compiler;
+        # on here because a container has no Docker daemon and a laptop has no
+        # Lambda, so this stack has nowhere else to run it.
+        INCLUDE_JDK: "true"
     image: pairpath-api:local
-    env_file: [../../Pair_Path/api/.env]
+    env_file: [../../Pair_Path/backend/.env]
     environment:
       CODE_COACH_URL: http://code-coach:8080
       ML_SERVICE_URL: http://pairpath-ml:8000
+      # ============ WHY THIS STACK IS NOT "production" ============
+      # The image sets NODE_ENV=production; this overrides it, deliberately.
+      #
+      # .env carries CODE_RUNNER_ALLOW_UNSANDBOXED=true, which runs student
+      # Java in this container with the API's own permissions - including read
+      # access to the credentials in that same .env. The API refuses to start
+      # at all when that flag is set with NODE_ENV=production, which is what
+      # stopped this stack booting the first time it was built after the check
+      # was added. The check is right: this is a demonstration stack on one
+      # machine, not a deployment, and saying so is more honest than relaxing
+      # the rule that says so.
+      #
+      # A real deployment sets CODE_RUNNER_LAMBDA_FUNCTION and leaves
+      # NODE_ENV=production, and the flag never travels with it.
+      # ============================================================
+      NODE_ENV: development
       # Same-origin through Caddy, so the only origin the browser ever uses is
       # the edge's. Kept explicit rather than removed: the API still reads it.
       CORS_ORIGINS: "${PUBLIC_ORIGIN:-http://localhost:8080}"
@@ -118,14 +184,24 @@ services:
       # correct here, because PairPath has no Socket.IO adapter and therefore
       # cannot run as more than one instance anyway.
       REDIS_URL: ""
-    depends_on: [code-coach, pairpath-ml]
+    # /health queries the database, so "healthy" here means Neon has woken up
+    # and this service can actually serve a request - see health.controller.ts.
+    healthcheck:
+      <<: *wget
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/health"]
+    depends_on:
+      code-coach: {condition: service_healthy}
+      pairpath-ml: {condition: service_healthy}
 
   pairpath-ml:
     <<: *restart
     build:
-      context: ../../Pair_Path/ml-service
+      context: ../../Pair_Path/backend/ml
       dockerfile: Dockerfile
     image: pairpath-ml:local
+    healthcheck:
+      <<: *pyget
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
 
   # ── Gamification ──────────────────────────────────────────────────────────
   gamification-api:
@@ -142,7 +218,13 @@ services:
       # Progress Tracker. Without this it would fall back to the localhost
       # default and log a failed transmission after every game.
       STUDY_GUIDER_URL: http://study-guider:8010
-    depends_on: [code-coach, gamification-ml, study-guider]
+    healthcheck:
+      <<: *wget
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3002/health"]
+    depends_on:
+      code-coach: {condition: service_healthy}
+      gamification-ml: {condition: service_healthy}
+      study-guider: {condition: service_healthy}
 
   # Serves the difficulty model, and can refit it from the game sessions in
   # Mongo. It had no environment at all, which meant two things silently: the
@@ -161,6 +243,9 @@ services:
       # The backend's .env also carries PORT=3002 for the Node service, which
       # would move this one off the port gamification-api is pointed at.
       PORT: "5000"
+    healthcheck:
+      <<: *pyget
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health')"]
 
 # The code runner is NOT here. It is a Lambda container image, and running it
 # beside everything else would put student-submitted Java on the same host as
