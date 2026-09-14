@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowRight, Loader2 } from 'lucide-react';
 
+import { ConnectEditor, useEditorSignInState } from '@/components/connect-editor';
 import { Field, FormError } from '@/components/field';
 import { buttonClass } from '@/components/ui';
 import { completeExtensionHandoff } from '@/lib/extension-handoff';
@@ -19,6 +20,11 @@ function RegisterForm() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [handoffDone, setHandoffDone] = useState(false);
+
+  // VS Code's Create Account opens this page. A browser already signed in
+  // gets the same offer as on the login page: connect this account.
+  const redirectUri = params.get('redirect_uri');
+  const editor = useEditorSignInState(redirectUri);
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -47,7 +53,7 @@ function RegisterForm() {
 
       // Same loopback handoff as sign-in: the extension offers Create
       // Account too, and it waits on the same port for the same code.
-      const handoff = await completeExtensionHandoff(params.get('redirect_uri'));
+      const handoff = await completeExtensionHandoff(redirectUri);
       if (handoff) {
         setHandoffDone(true);
         window.location.href = handoff;
@@ -61,6 +67,20 @@ function RegisterForm() {
     } finally {
       if (!handoffDone) setBusy(false);
     }
+  }
+
+  if (editor.state.status === 'checking') {
+    return <div className="h-[420px]" />;
+  }
+
+  if (editor.state.status === 'signed-in' && redirectUri) {
+    return (
+      <ConnectEditor
+        user={editor.state.user}
+        redirectUri={redirectUri}
+        onUseAnotherAccount={editor.useAnotherAccount}
+      />
+    );
   }
 
   return (

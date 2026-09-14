@@ -27,7 +27,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const session = await login(identifier, password);
+    // The student's address, so Code Coach rate-limits per student rather than
+    // treating this server as one client - see forwardedFor in lib/code-coach.
+    const session = await login(identifier, password, request.headers.get('x-forwarded-for'));
 
     // Fails soft. A student who cannot reach PairPath should still get into
     // Study Guider and the games; the pairing routes report the missing token

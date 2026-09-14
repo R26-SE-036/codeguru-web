@@ -21,6 +21,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { refresh } from './lib/code-coach';
+import { isLoopbackRedirectSeenByMiddleware } from './lib/loopback';
 import {
   SESSION_COOKIE,
   cookieOptions,
@@ -62,6 +63,18 @@ export async function middleware(request: NextRequest) {
 
   // Signed in and heading for the login page: send them where they were going.
   if (isPublic(pathname)) {
+    // Except when the VS Code extension opened it. A student's browser is
+    // usually already signed in, and redirecting dropped the extension's return
+    // address - the student landed on the home page and VS Code waited on its
+    // loopback port until it timed out. The page offers to connect the editor
+    // as the signed-in student instead (components/connect-editor.tsx).
+    //
+    // Not the strict check: Next has rewritten 127.0.0.1 in this query string
+    // to localhost by now - see isLoopbackRedirectSeenByMiddleware.
+    if (isLoopbackRedirectSeenByMiddleware(request.nextUrl.searchParams.get('redirect_uri'))) {
+      return NextResponse.next();
+    }
+
     const next = request.nextUrl.searchParams.get('next');
     const target = next && next.startsWith('/') && !next.startsWith('//') ? next : '/';
     return NextResponse.redirect(new URL(target, request.url));
@@ -71,7 +84,11 @@ export async function middleware(request: NextRequest) {
 
   // ── Refresh, once ──
   try {
-    const refreshed = await refresh(session.refreshToken);
+    // With the student's address. Without it every refresh on the platform
+    // counted against one rate-limit bucket, and the refresh that hit the limit
+    // landed in the catch below - signing a student out for someone else's
+    // traffic. See forwardedFor in lib/code-coach.ts.
+    const refreshed = await refresh(session.refreshToken, request.headers.get('x-forwarded-for'));
 
     // Carry the PairPath identity across. It has its own lifetime and is not
     // reissued by a Code Coach refresh; dropping it here would silently sign
