@@ -94,7 +94,7 @@ The only application-level migration, and it is configuration plus data:
 1. Swap `google-cloud-firestore` for `pymongo` in `backend/requirements-prod.txt`.
 2. Run the export/import against the new cluster.
 3. Unset `FIREBASE_CREDENTIALS_PATH` and `FIREBASE_PROJECT_ID`; set
-   `MONGODB_URI` and `MONGODB_DB_NAME=code-guru`.
+   `MONGODB_URI` and `MONGODB_DB_NAME=code_coach`.
 4. Confirm the startup line reads `Storage backend: MongoDB`. If it reads
    `in-memory`, **stop** — every account and session is being written to a
    process that will lose them, and the failure is silent until a restart.
