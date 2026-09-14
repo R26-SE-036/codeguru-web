@@ -16,3 +16,7 @@ Thumbs.db
 
 # A preview build made with NEXT_DIST_DIR, alongside the dev server.
 .next-preview/
+
+# Test output: Playwright traces, screenshots and its HTML report.
+test-results/
+playwright-report/
