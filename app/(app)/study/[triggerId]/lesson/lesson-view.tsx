@@ -121,6 +121,43 @@ interface LessonContent {
   videoUrl?: string;
   referenceLink?: string;
   mermaidDiagram?: string;
+  /**
+   * What the lesson was written with. `syllabus_notes` is found, none_found,
+   * unavailable or unknown (cached before this was recorded); `student_record`
+   * is read, unavailable, no_concept or unknown.
+   */
+  grounding?: { syllabus_notes?: string; student_record?: string };
+}
+
+/**
+ * A sentence when the lesson was written without the course notes or without
+ * the student's record, and null when it was not.
+ *
+ * Without this a lesson written while the study graph was unreachable looked
+ * exactly like a grounded, personalised one. The lesson text itself cannot be
+ * trusted to say so, and "unknown" (an older cached lesson) says nothing
+ * either way, so it gets no notice.
+ */
+function groundingNotice(grounding: LessonContent['grounding']): string | null {
+  const notes = grounding?.syllabus_notes;
+  const recordUnreadable = grounding?.student_record === 'unavailable';
+
+  if (notes === 'unavailable' && recordUnreadable) {
+    return "Study Guider couldn't reach your course notes or your progress record, so this lesson is written from general Java knowledge and doesn't know what you've already practised.";
+  }
+  if (notes === 'unavailable') {
+    return "Study Guider couldn't reach your course notes, so this lesson is written from general Java knowledge rather than from the course material.";
+  }
+  if (notes === 'none_found' && recordUnreadable) {
+    return "There are no course notes on this exact mistake and your progress record couldn't be read, so this lesson is written from general Java knowledge and doesn't know what you've already practised.";
+  }
+  if (notes === 'none_found') {
+    return 'There are no course notes on this exact mistake, so this lesson is written from general Java knowledge.';
+  }
+  if (recordUnreadable) {
+    return "Study Guider couldn't read your progress record, so this lesson doesn't know what you've already practised.";
+  }
+  return null;
 }
 
 export function LessonView({ triggerId }: { triggerId: string }) {
@@ -298,6 +335,15 @@ export function LessonView({ triggerId }: { triggerId: string }) {
           {title}
         </h1>
       </header>
+
+      {groundingNotice(lesson?.grounding) && (
+        <p
+          role="status"
+          className="rounded-cg border border-warn/30 bg-warn/10 px-4 py-3 text-sm text-body"
+        >
+          {groundingNotice(lesson?.grounding)}
+        </p>
+      )}
 
       {lesson?.issue && (
         <Card className="flex gap-4 border-l-4 border-l-warn p-5">

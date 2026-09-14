@@ -120,7 +120,11 @@ export function QuizView({ triggerId }: { triggerId: string }) {
         setError(
           err instanceof ApiError && err.isUnavailable
             ? 'Study Guider is unavailable right now. Please try again shortly.'
-            : 'Could not load the quiz.',
+            : // The daily generation limit. "Try again shortly" would be wrong
+              // advice, and the backend's message says what is actually true.
+              err instanceof ApiError && err.status === 429
+              ? err.message
+              : 'Could not load the quiz.',
         );
       }
     })();
