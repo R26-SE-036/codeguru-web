@@ -62,8 +62,15 @@ const UPSTREAMS: Record<ServiceKey, Upstream> = {
   },
 };
 
+/**
+ * Own keys only. `value in UPSTREAMS` also answered true for every name a plain
+ * object inherits - toString, constructor, __proto__ - so /api/bff/toString/x
+ * passed as a known service and went on to build an "upstream" out of
+ * Object.prototype's method, attaching the student's platform token on the
+ * way. It failed further down; it should never have got that far.
+ */
 export function isServiceKey(value: string): value is ServiceKey {
-  return value in UPSTREAMS;
+  return Object.hasOwn(UPSTREAMS, value);
 }
 
 /**
