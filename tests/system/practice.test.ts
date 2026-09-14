@@ -29,7 +29,7 @@ describe('a practice round', () => {
     expect('decisionId' in game.body).toBe(true);
   });
 
-  it('grades a round and hands its summary to Study Guider', async () => {
+  it('grades a round, and keeps a test round out of the student\'s practice history', async () => {
     const game = await browser.get(`/api/bff/play/game/${userId}/auto/${CONCEPT}/auto`);
     expect(game.status, said(game)).toBe(200);
 
@@ -54,23 +54,28 @@ describe('a practice round', () => {
     expect(submitted.status, said(submitted)).toBe(200);
     expect(typeof submitted.body.score).toBe('number');
 
-    // The hand-off is fire-and-forget by design, so it is polled for.
-    let last = '';
-    const summary = await eventually(async () => {
-      const summaries = await browser.get('/api/bff/study/games/me?limit=20');
-      last = said(summaries);
-      return summaries.status === 200
-        ? (summaries.body.data ?? []).find((row: { game_session_id?: string }) => row.game_session_id === submitted.body.gameSessionId)
-        : undefined;
-    }, 20_000);
+    // The engine hands every finished round to Study Guider, which stores test
+    // rounds but leaves them out of the practice history a student reads
+    // (get_game_summaries, since Study Guider's e2d5f886): a round an automated
+    // test played is not something the student did. So from the outside the
+    // right answer is that it does NOT appear. Whether it arrived is visible
+    // only in Study Guider's own store, which this suite does not read.
+    //
+    // The hand-off is fire-and-forget, so give it time to land before checking
+    // it is hidden - a check made before it arrived would pass for nothing.
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
+    const history = await browser.get('/api/bff/study/games/me?limit=20');
     expect(
-      summary,
-      last.startsWith('503')
-        ? `the round could not reach Study Guider because Study Guider cannot reach its Neo4j database: ${last}`
-        : `the round never reached Study Guider; its game list answered ${last}`,
-    ).toBeTruthy();
-    expect(summary.concept).toBe(CONCEPT);
+      history.status,
+      history.status === 503
+        ? `Study Guider cannot reach its Neo4j database: ${said(history)}`
+        : said(history),
+    ).toBe(200);
+    expect(
+      (history.body.data ?? []).map((row: { game_session_id?: string }) => row.game_session_id),
+      'a test round showed up in the student\'s practice history',
+    ).not.toContain(submitted.body.gameSessionId);
   });
 
   it('refuses to serve one student another student\'s game', async () => {
