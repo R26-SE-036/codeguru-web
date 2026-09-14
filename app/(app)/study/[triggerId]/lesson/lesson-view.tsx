@@ -127,6 +127,12 @@ interface LessonContent {
    * is read, unavailable, no_concept or unknown.
    */
   grounding?: { syllabus_notes?: string; student_record?: string };
+  /**
+   * The syllabus notes the lesson says it drew on, checked on the server
+   * against the notes it was actually given - a citation to a note that was
+   * never offered is dropped there, not shown here.
+   */
+  sources?: { id: string; concept?: string; source?: string }[];
 }
 
 /**
@@ -366,6 +372,22 @@ export function LessonView({ triggerId }: { triggerId: string }) {
           <p className="mt-3 whitespace-pre-line leading-relaxed text-body">
             {lesson.explanation}
           </p>
+          {/* Only when the lesson cited notes. Saying "based on your course
+              notes" for a lesson that cited none would be the claim the
+              grounding work exists to stop making. */}
+          {lesson.sources && lesson.sources.length > 0 && (
+            <p className="mt-4 border-t border-line pt-3 text-sm text-muted">
+              Based on your course notes on{' '}
+              {Array.from(
+                new Set(
+                  lesson.sources
+                    .map((source) => formatConcept(source.concept || ''))
+                    .filter(Boolean),
+                ),
+              ).join(', ')}
+              .
+            </p>
+          )}
         </Card>
       )}
 
