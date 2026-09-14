@@ -133,6 +133,12 @@ interface LessonContent {
    * never offered is dropped there, not shown here.
    */
   sources?: { id: string; concept?: string; source?: string }[];
+  /**
+   * Concepts this one builds on that knowledge tracing does not yet believe the
+   * student knows. Empty when there are none, or when the record could not be
+   * read - the grounding notice covers that case.
+   */
+  unmet_prerequisites?: string[];
 }
 
 /**
@@ -349,6 +355,34 @@ export function LessonView({ triggerId }: { triggerId: string }) {
         >
           {groundingNotice(lesson?.grounding)}
         </p>
+      )}
+
+      {/* What this concept builds on that the student has not got yet. The
+          lesson prompt already knows, but a student reading a lesson that does
+          not land should be told where to go, not left to guess. */}
+      {lesson?.unmet_prerequisites && lesson.unmet_prerequisites.length > 0 && (
+        <Card className="flex gap-4 border-l-4 border-l-hue-study p-5">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-cg bg-hue-study/10 text-hue-study">
+            <BookOpen size={18} strokeWidth={2.2} aria-hidden />
+          </span>
+          <div>
+            <h2 className="font-bold text-ink">Worth a look first</h2>
+            <p className="mt-1 text-body">
+              This builds on{' '}
+              <span className="font-semibold text-ink">
+                {lesson.unmet_prerequisites.map((name) => formatConcept(name)).join(', ')}
+              </span>
+              , which you haven&apos;t mastered yet. If this lesson doesn&apos;t land,
+              start there.
+            </p>
+            <Link
+              href="/study/progress"
+              className="cg-focusable mt-2 inline-block rounded text-sm font-semibold text-accent hover:underline"
+            >
+              See your learning map
+            </Link>
+          </div>
+        </Card>
       )}
 
       {lesson?.issue && (
