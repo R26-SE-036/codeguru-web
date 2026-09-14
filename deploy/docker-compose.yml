@@ -14,7 +14,9 @@
 # ── Why only Caddy publishes a port ──────────────────────────────────────────
 # The browser talks to exactly two things: the web app, and PairPath's socket.
 # Every other backend call goes through the BFF, server-side, so the backends
-# need to be reachable from codeguru-web and from nowhere else. They are on the
+# need to be reachable from codeguru-web and from nowhere else. The one
+# exception is the VS Code extension, which is not a browser and has no BFF: it
+# calls Code Coach's /api/v1 with its own token, so Caddy routes that path too. They are on the
 # internal network with no `ports:` mapping, which means they are not reachable
 # from the host at all - the same posture as a private subnet, minus the VPC.
 #
