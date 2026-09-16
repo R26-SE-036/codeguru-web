@@ -5,17 +5,8 @@
 import { io, type Socket } from 'socket.io-client';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 
+import { connect as connectSocket, once, socketToken } from './pair-socket';
 import { BASE, Visitor, newStudent, said, signUp } from './platform';
-
-function once<T = any>(socket: Socket, event: string, ms = 20_000): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`no '${event}' within ${ms} ms`)), ms);
-    socket.once(event, (payload: T) => {
-      clearTimeout(timer);
-      resolve(payload);
-    });
-  });
-}
 
 describe('a pair session', () => {
   const driver = Visitor.withCookies(inject('cookies'));
@@ -24,25 +15,7 @@ describe('a pair session', () => {
   const sockets: Socket[] = [];
   let session: { id: string; joinCode: string } | null = null;
 
-  const connect = (token: string) =>
-    new Promise<Socket>((resolve, reject) => {
-      const socket = io(BASE, {
-        path: '/pair-ws/socket.io',
-        auth: { token },
-        transports: ['websocket'],
-        reconnection: false,
-        timeout: 15_000,
-      });
-      sockets.push(socket);
-      socket.once('connect', () => resolve(socket));
-      socket.once('connect_error', reject);
-    });
-
-  const socketToken = async (visitor: Visitor) => {
-    const reply = await visitor.get('/api/pair/socket-token');
-    expect(reply.status, said(reply)).toBe(200);
-    return reply.body.token as string;
-  };
+  const connect = (token: string) => connectSocket(token, sockets);
 
   beforeAll(async () => {
     for (const [visitor, label] of [[partner, 'partner'], [stranger, 'stranger']] as const) {
