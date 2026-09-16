@@ -12,6 +12,32 @@
 {$CADDY_SITE} {
 	encode gzip zstd
 
+	# ── Response headers, for everything the edge serves ─────────────────────
+	# None of these were sent. nosniff stops a browser treating a JSON answer as
+	# a script; DENY stops another site framing the sign-in page to trick a
+	# click (nothing here is meant to be framed - the VS Code extension opens
+	# the portal in a browser, not a webview). HSTS is ignored over plain http,
+	# so it is harmless on localhost and takes effect once there is a
+	# certificate. The last two lines stop naming the software that answered.
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Strict-Transport-Security "max-age=31536000"
+		-X-Powered-By
+		-Server
+	}
+
+	# ── Request size ─────────────────────────────────────────────────────────
+	# Nothing on the platform uploads a file: the largest request is an editor
+	# buffer of Java. Without a cap, every proxy hop buffered whatever arrived -
+	# a 2 MB body went through the web app to Code Coach - which on a 2 GB
+	# instance is memory taken from eight services.
+	request_body {
+		max_size 1MB
+	}
+
 	# ── PairPath's Socket.IO ─────────────────────────────────────────────────
 	# A WebSocket cannot be proxied through a Next route handler, so this is the
 	# one backend path the browser reaches directly. Same-origin, so no CORS and

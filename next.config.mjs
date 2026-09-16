@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Caddy strips it too; not sending it at all also covers `next start` without the edge.
+  poweredByHeader: false,
   // No `rewrites` to any backend. PairPath's frontend proxied /api/* straight
   // to http://localhost:3001, hardcoded in this file with no env var, which
   // meant the deployed build pointed at the developer's laptop. Backend calls

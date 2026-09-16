@@ -122,6 +122,25 @@ describe('Caddy', () => {
     expect(readdirSync(path('app/api'))).not.toContain('v1');
   });
 
+  it('sends the security headers on everything it serves, and names no software', () => {
+    const block = caddyfile.match(/\n\theader \{\n([\s\S]*?)\n\t\}/)?.[1] ?? '';
+
+    for (const line of [
+      'X-Content-Type-Options nosniff',
+      'X-Frame-Options DENY',
+      'Referrer-Policy strict-origin-when-cross-origin',
+      'Strict-Transport-Security "max-age=31536000"',
+      '-X-Powered-By',
+      '-Server',
+    ]) {
+      expect(block, `missing from the header block: ${line}`).toContain(line);
+    }
+  });
+
+  it('caps a request body before any service buffers it', () => {
+    expect(caddyfile).toMatch(/request_body \{\s*max_size 1MB\s*\}/);
+  });
+
   it('matches the port the web image serves on', () => {
     expect(dockerfile).toMatch(/^ENV PORT=4200$/m);
     expect(dockerfile).toMatch(/^ENV HOSTNAME=0\.0\.0\.0$/m);
