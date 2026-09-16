@@ -1,0 +1,177 @@
+# The whole platform on one EC2 instance (t4g.small, arm64, ap-south-1).
+#
+#   On the server, in the directory holding this file:
+#     docker compose pull
+#     docker compose up -d
+#
+# ── How this differs from ../docker-compose.yml ──────────────────────────────
+# That file builds from the five sibling repositories on a laptop. A 2 GB
+# instance cannot build the web app without running out of memory, and has no
+# business holding source code anyway, so here every service is an image
+# pulled from ECR, built for arm64 by build-and-push.sh on the laptop.
+#
+# The server directory is only: this file, the Caddyfile, a .env with the
+# values below, and env/ with one file per service (prepare-env.sh). No build
+# contexts, so nothing here refers to a repository path.
+#
+# ── Student code ─────────────────────────────────────────────────────────────
+# PairPath runs in production mode and sends student Java to the code-runner
+# Lambda. There is no JDK in its image and CODE_RUNNER_ALLOW_UNSANDBOXED never
+# reaches this server: prepare-env.sh strips it, and the API refuses to start
+# if it arrives with NODE_ENV=production.
+#
+# The Lambda is invoked with the instance role's credentials, fetched from the
+# instance metadata service. From inside a container that is two network hops,
+# so the instance must have its metadata hop limit set to 2 - with the default
+# of 1 the SDK finds no credentials and every Run reads "temporarily
+# unavailable".
+#
+# ── Memory ───────────────────────────────────────────────────────────────────
+# Measured idle on the laptop: about 925 MB for all eight. The limits sit
+# above those figures with room for a request, and together exceed 2 GB on
+# purpose - they are ceilings that stop one service taking the others down,
+# not reservations, and the instance has swap behind them.
+
+name: codeguru
+
+x-service: &service
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    # Without a cap the default log driver grows until the disk is full.
+    options: {max-size: "10m", max-file: "3"}
+
+x-health: &health
+  interval: 15s
+  timeout: 5s
+  retries: 12
+  start_period: 60s
+
+services:
+  # ── Edge ──────────────────────────────────────────────────────────────────
+  caddy:
+    <<: *service
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      # A hostname, which is what makes Caddy obtain and renew a certificate.
+      CADDY_SITE: "${CADDY_SITE:?set CADDY_SITE in .env, e.g. 13-201-10-20.sslip.io}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Holds the certificate. Losing it means asking Let's Encrypt again, and
+      # repeated requests for one hostname are rate limited.
+      - caddy_data:/data
+      - caddy_config:/config
+    deploy: {resources: {limits: {memory: 96m}}}
+    depends_on:
+      web: {condition: service_healthy}
+
+  # ── Web tier / BFF ────────────────────────────────────────────────────────
+  web:
+    <<: *service
+    image: "${REGISTRY:?}/codeguru/web:${TAG:?}"
+    env_file: [env/web.env]
+    environment:
+      CODE_COACH_URL: http://code-coach:8080
+      STUDY_GUIDER_URL: http://study-guider:8010
+      PAIRPATH_URL: http://pairpath-api:3001
+      GAMIFICATION_URL: http://gamification-api:3002
+      NEXT_PUBLIC_PAIR_WS_URL: ""
+    healthcheck:
+      <<: *health
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4200/login"]
+    deploy: {resources: {limits: {memory: 256m}}}
+    depends_on:
+      code-coach: {condition: service_healthy}
+      study-guider: {condition: service_healthy}
+      pairpath-api: {condition: service_healthy}
+      gamification-api: {condition: service_healthy}
+
+  code-coach:
+    <<: *service
+    image: "${REGISTRY:?}/codeguru/code-coach:${TAG:?}"
+    env_file: [env/code-coach.env]
+    environment:
+      CORS_ALLOWED_ORIGINS: "${PUBLIC_ORIGIN:?}"
+    healthcheck:
+      <<: *health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
+    deploy: {resources: {limits: {memory: 320m}}}
+
+  study-guider:
+    <<: *service
+    image: "${REGISTRY:?}/codeguru/study-guider:${TAG:?}"
+    env_file: [env/study-guider.env]
+    environment:
+      CODE_COACH_URL: http://code-coach:8080
+    healthcheck:
+      <<: *health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/api/health')"]
+    deploy: {resources: {limits: {memory: 384m}}}
+    depends_on:
+      code-coach: {condition: service_healthy}
+
+  pairpath-api:
+    <<: *service
+    image: "${REGISTRY:?}/codeguru/pairpath-api:${TAG:?}"
+    env_file: [env/pairpath-api.env]
+    environment:
+      # NODE_ENV stays the image's "production" - see the header.
+      CODE_COACH_URL: http://code-coach:8080
+      ML_SERVICE_URL: http://pairpath-ml:8000
+      CODE_RUNNER_LAMBDA_FUNCTION: "${CODE_RUNNER_LAMBDA_FUNCTION:?}"
+      AWS_REGION: "${AWS_REGION:-ap-south-1}"
+      CORS_ORIGINS: "${PUBLIC_ORIGIN:?}"
+      # One instance, so the in-process cooldown map is the right store.
+      REDIS_URL: ""
+    healthcheck:
+      <<: *health
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/health"]
+    deploy: {resources: {limits: {memory: 256m}}}
+    depends_on:
+      code-coach: {condition: service_healthy}
+      pairpath-ml: {condition: service_healthy}
+
+  pairpath-ml:
+    <<: *service
+    image: "${REGISTRY:?}/codeguru/pairpath-ml:${TAG:?}"
+    healthcheck:
+      <<: *health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+    deploy: {resources: {limits: {memory: 256m}}}
+
+  gamification-api:
+    <<: *service
+    image: "${REGISTRY:?}/codeguru/gamification-api:${TAG:?}"
+    env_file: [env/gamification.env]
+    environment:
+      CODE_COACH_URL: http://code-coach:8080
+      ML_SERVICE_URL: http://gamification-ml:5000
+      STUDY_GUIDER_URL: http://study-guider:8010
+      CORS_ORIGINS: "${PUBLIC_ORIGIN:?}"
+    healthcheck:
+      <<: *health
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3002/health"]
+    deploy: {resources: {limits: {memory: 192m}}}
+    depends_on:
+      code-coach: {condition: service_healthy}
+      gamification-ml: {condition: service_healthy}
+      study-guider: {condition: service_healthy}
+
+  gamification-ml:
+    <<: *service
+    image: "${REGISTRY:?}/codeguru/gamification-ml:${TAG:?}"
+    env_file: [env/gamification.env]
+    environment:
+      PORT: "5000"
+    healthcheck:
+      <<: *health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health')"]
+    deploy: {resources: {limits: {memory: 448m}}}
+
+volumes:
+  caddy_data:
+  caddy_config:

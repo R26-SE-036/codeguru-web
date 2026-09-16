@@ -20,3 +20,6 @@ Thumbs.db
 # Test output: Playwright traces, screenshots and its HTML report.
 test-results/
 playwright-report/
+
+# Per-service credentials for the server, written by deploy/aws/prepare-env.sh.
+deploy/aws/env/

@@ -21,3 +21,6 @@ playwright-report
 vitest.config.ts
 vitest.system.config.ts
 playwright.config.ts
+
+# Deployment files, including deploy/aws/env/ with every service's credentials.
+deploy
