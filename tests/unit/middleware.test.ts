@@ -146,17 +146,53 @@ describe('refreshing', () => {
   });
 });
 
+describe('a write from another site', () => {
+  it.each([
+    ['/api/bff/pair/sessions', { origin: 'https://evil.example' }],
+    ['/api/auth/logout', { origin: 'https://evil.example' }],
+    // The sslip.io case: another host under a suffix browsers count as one site.
+    ['/api/auth/logout', { 'sec-fetch-site': 'same-site', origin: 'https://203-0-113-9.sslip.io' }],
+    ['/api/pair/outcome/abc', { 'sec-fetch-site': 'cross-site' }],
+    ['/api/auth/login', { origin: 'null' }],
+  ])('is refused at %s with %j, before any session is read', async (path, headers) => {
+    const response = await middleware(await makeRequest(path, { method: 'POST', session: makeSession(), headers }));
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ detail: 'Cross-site request refused.' });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('is allowed from the app\'s own pages', async () => {
+    const response = await middleware(
+      await makeRequest('/api/bff/pair/sessions', {
+        method: 'POST',
+        session: makeSession(),
+        headers: { origin: ORIGIN, 'sec-fetch-site': 'same-origin' },
+      }),
+    );
+    expect(passedThrough(response)).toBe(true);
+  });
+
+  it('lets the auth routes through without a session, once the check has passed', async () => {
+    for (const path of ['/api/auth/login', '/api/auth/register', '/api/auth/handoff']) {
+      const response = await middleware(await makeRequest(path, { method: 'POST', headers: { origin: ORIGIN } }));
+      expect(passedThrough(response), path).toBe(true);
+    }
+  });
+});
+
 describe('which requests the gate sees', () => {
   const matcher = new RegExp(`^${config.matcher[0]}$`);
 
-  it.each(['/', '/study', '/pair/abc/results', '/api/bff/coach/students/me', '/api/pair/socket-token'])(
+  // The auth routes are matched so the cross-site check covers them.
+  it.each(['/', '/study', '/pair/abc/results', '/api/bff/coach/students/me', '/api/pair/socket-token', '/api/auth/login', '/api/auth/handoff'])(
     'guards %s',
     (path) => {
       expect(matcher.test(path)).toBe(true);
     },
   );
 
-  it.each(['/api/auth/login', '/api/auth/handoff', '/_next/static/chunk.js', '/_next/image', '/icon.svg', '/favicon.ico'])(
+  it.each(['/_next/static/chunk.js', '/_next/image', '/icon.svg', '/favicon.ico'])(
     'leaves %s alone',
     (path) => {
       expect(matcher.test(path)).toBe(false);
