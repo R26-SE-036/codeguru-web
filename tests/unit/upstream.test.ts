@@ -4,7 +4,14 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
-import { baseUrl, credentialKind, isServiceKey, tokenFor, upstreamUrl } from '@/lib/upstream';
+import {
+  UnsafeUpstreamPathError,
+  baseUrl,
+  credentialKind,
+  isServiceKey,
+  tokenFor,
+  upstreamUrl,
+} from '@/lib/upstream';
 import { makeSession } from './helpers';
 
 describe('upstreamUrl', () => {
@@ -19,6 +26,32 @@ describe('upstreamUrl', () => {
 
   it('adds the leading slash a caller forgot', () => {
     expect(upstreamUrl('coach', 'auth/me', '')).toBe('http://code-coach:8080/api/v1/auth/me');
+  });
+
+  // Each of these reached the service's root through the proxy - see upstreamUrl.
+  it.each([
+    ['coach', '/../../openapi.json'],
+    ['coach', '/students/../../../docs'],
+    ['coach', '/..\\..\\openapi.json'],
+    ['coach', '/%2e%2e/%2e%2e/openapi.json'],
+    ['coach', '/.%2E/analyze'],
+    ['study', '/./../openapi.json'],
+    ['play', '/../../../health'],
+    ['pair', '/sessions/../auth/exchange'],
+  ] as const)('refuses to forward %s%s', (service, path) => {
+    expect(() => upstreamUrl(service, path, '')).toThrow(UnsafeUpstreamPathError);
+  });
+
+  it.each([
+    ['coach', '/students/me/diagnostics'],
+    ['study', '/games/me'],
+    ['pair', '/sessions/cm1abc2def3ghi4jkl5mno6pq/outcome'],
+    ['play', '/profile/user_1'],
+    // Dots inside a segment are an ordinary name, not a dot segment.
+    ['coach', '/files/Main.java'],
+    ['coach', '/students/..me'],
+  ] as const)('still forwards %s%s', (service, path) => {
+    expect(() => upstreamUrl(service, path, '')).not.toThrow();
   });
 
   it('ignores trailing slashes on the configured address', () => {

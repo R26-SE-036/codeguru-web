@@ -47,6 +47,14 @@ export async function POST(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params;
+
+  // PairPath's ids are cuids. Anything else goes no further than here - in
+  // particular `..`, which encodeURIComponent leaves as it is and which would
+  // otherwise resolve to a different PairPath path.
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) {
+    return NextResponse.json({ recorded: false, reason: 'invalid_session_id' }, { status: 400 });
+  }
+
   const session = await unsealSession(request.cookies.get(SESSION_COOKIE)?.value);
   if (!session) {
     return NextResponse.json({ detail: 'Not signed in.' }, { status: 401 });

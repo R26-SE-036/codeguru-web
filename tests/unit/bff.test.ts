@@ -57,6 +57,23 @@ describe('refusals', () => {
     expect(upstream).not.toHaveBeenCalled();
   });
 
+  // Next hands the route decoded segments, so `..%2F..%2Fopenapi.json` arrives
+  // as the single segment below - which once reached Code Coach's root.
+  it.each([
+    [['..', '..', 'openapi.json']],
+    [['../../openapi.json']],
+    [['..\\..\\openapi.json']],
+    [['%2e%2e', '%2e%2e', 'openapi.json']],
+  ])('answers 400 for the path %j and calls nothing', async (path) => {
+    const upstream = stubUpstream(reply({}));
+
+    const response = await GET(await makeRequest('/api/bff/coach/x', { session: makeSession() }), context('coach', ...path));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ detail: 'Invalid path.' });
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
   it('answers 401 without a session, even if middleware were bypassed', async () => {
     const upstream = stubUpstream(reply({}));
 
