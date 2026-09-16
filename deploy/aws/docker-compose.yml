@@ -27,10 +27,13 @@
 # unavailable".
 #
 # ── Memory ───────────────────────────────────────────────────────────────────
-# Measured idle on the laptop: about 925 MB for all eight. The limits sit
-# above those figures with room for a request, and together exceed 2 GB on
-# purpose - they are ceilings that stop one service taking the others down,
-# not reservations, and the instance has swap behind them.
+# Measured on the laptop: about 925 MB for all eight idle, and 1.18 GB at the
+# peak of thirty simulated students - the web server alone went from 72 MB to
+# 234 MB, rendering pages. tests/system/capacity.test.ts measures each peak
+# against the ceiling below and fails a ceiling with less than 15% to spare.
+# Together they exceed 2 GB on purpose - they are ceilings that stop one
+# service taking the others down, not reservations, and the instance has swap
+# behind them.
 
 name: codeguru
 
@@ -65,7 +68,8 @@ services:
       # repeated requests for one hostname are rate limited.
       - caddy_data:/data
       - caddy_config:/config
-    deploy: {resources: {limits: {memory: 96m}}}
+    # 74 MB at the capacity test's peak, after the security suite's 2 MB bodies.
+    deploy: {resources: {limits: {memory: 128m}}}
     depends_on:
       web: {condition: service_healthy}
 
@@ -83,7 +87,7 @@ services:
     healthcheck:
       <<: *health
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4200/login"]
-    deploy: {resources: {limits: {memory: 256m}}}
+    deploy: {resources: {limits: {memory: 384m}}}
     depends_on:
       code-coach: {condition: service_healthy}
       study-guider: {condition: service_healthy}
