@@ -21,6 +21,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { refresh } from './lib/code-coach';
+import { isCrossSiteWrite } from './lib/cross-site';
+import { isLoopbackRedirectSeenByMiddleware } from './lib/loopback';
 import {
   SESSION_COOKIE,
   cookieOptions,
@@ -38,6 +40,16 @@ function isPublic(pathname: string): boolean {
 
 export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
+
+  // First, and for the auth routes too: a forged logout or sign-in is as much
+  // a cross-site write as a forged proxy call. See lib/cross-site.ts.
+  if (isCrossSiteWrite(request)) {
+    return NextResponse.json({ detail: 'Cross-site request refused.' }, { status: 403 });
+  }
+
+  // The auth routes establish a session, so they cannot be gated on having one.
+  if (pathname.startsWith('/api/auth/')) return NextResponse.next();
+
   const session = await unsealSession(request.cookies.get(SESSION_COOKIE)?.value);
 
   // ── No session ──
@@ -62,6 +74,18 @@ export async function middleware(request: NextRequest) {
 
   // Signed in and heading for the login page: send them where they were going.
   if (isPublic(pathname)) {
+    // Except when the VS Code extension opened it. A student's browser is
+    // usually already signed in, and redirecting dropped the extension's return
+    // address - the student landed on the home page and VS Code waited on its
+    // loopback port until it timed out. The page offers to connect the editor
+    // as the signed-in student instead (components/connect-editor.tsx).
+    //
+    // Not the strict check: Next has rewritten 127.0.0.1 in this query string
+    // to localhost by now - see isLoopbackRedirectSeenByMiddleware.
+    if (isLoopbackRedirectSeenByMiddleware(request.nextUrl.searchParams.get('redirect_uri'))) {
+      return NextResponse.next();
+    }
+
     const next = request.nextUrl.searchParams.get('next');
     const target = next && next.startsWith('/') && !next.startsWith('//') ? next : '/';
     return NextResponse.redirect(new URL(target, request.url));
@@ -71,7 +95,11 @@ export async function middleware(request: NextRequest) {
 
   // ── Refresh, once ──
   try {
-    const refreshed = await refresh(session.refreshToken);
+    // With the student's address. Without it every refresh on the platform
+    // counted against one rate-limit bucket, and the refresh that hit the limit
+    // landed in the catch below - signing a student out for someone else's
+    // traffic. See forwardedFor in lib/code-coach.ts.
+    const refreshed = await refresh(session.refreshToken, request.headers.get('x-forwarded-for'));
 
     // Carry the PairPath identity across. It has its own lifetime and is not
     // reissued by a Code Coach refresh; dropping it here would silently sign
@@ -98,11 +126,12 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Everything except Next's own assets, the app's own icons, and the auth
-     * endpoints.
+     * Everything except Next's own assets and the app's own icons.
      *
-     * /api/auth/* is excluded deliberately: those routes establish a session,
-     * so gating them on having one would make signing in impossible.
+     * /api/auth/* used to be excluded here, because those routes establish a
+     * session and gating them on having one would make signing in impossible.
+     * They are matched now so the cross-site check covers them, and the
+     * middleware passes them straight through after it.
      *
      * The icons are excluded because the exclusion list only named
      * `favicon.ico`, and this app serves app/icon.svg instead - so the browser
@@ -114,6 +143,6 @@ export const config = {
      * redirect to an HTML login page is never a useful answer to a request for
      * a static file, whoever is asking.
      */
-    '/((?!_next/static|_next/image|api/auth/|.*\\.[\\w]+$).*)',
+    '/((?!_next/static|_next/image|.*\\.[\\w]+$).*)',
   ],
 };

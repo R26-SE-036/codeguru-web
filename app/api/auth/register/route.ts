@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const session = await register(fullName, email, password);
+    const session = await register(fullName, email, password, request.headers.get('x-forwarded-for'));
     const pairPath = await exchangeForPairPath(session.accessToken);
     session.pairPathToken = pairPath?.token;
     session.pairPathUserId = pairPath?.userId;

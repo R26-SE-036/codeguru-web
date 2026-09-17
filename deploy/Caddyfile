@@ -12,6 +12,32 @@
 {$CADDY_SITE} {
 	encode gzip zstd
 
+	# ── Response headers, for everything the edge serves ─────────────────────
+	# None of these were sent. nosniff stops a browser treating a JSON answer as
+	# a script; DENY stops another site framing the sign-in page to trick a
+	# click (nothing here is meant to be framed - the VS Code extension opens
+	# the portal in a browser, not a webview). HSTS is ignored over plain http,
+	# so it is harmless on localhost and takes effect once there is a
+	# certificate. The last two lines stop naming the software that answered.
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Strict-Transport-Security "max-age=31536000"
+		-X-Powered-By
+		-Server
+	}
+
+	# ── Request size ─────────────────────────────────────────────────────────
+	# Nothing on the platform uploads a file: the largest request is an editor
+	# buffer of Java. Without a cap, every proxy hop buffered whatever arrived -
+	# a 2 MB body went through the web app to Code Coach - which on a 2 GB
+	# instance is memory taken from eight services.
+	request_body {
+		max_size 1MB
+	}
+
 	# ── PairPath's Socket.IO ─────────────────────────────────────────────────
 	# A WebSocket cannot be proxied through a Next route handler, so this is the
 	# one backend path the browser reaches directly. Same-origin, so no CORS and
@@ -23,6 +49,24 @@
 	# the workspace shows "disconnected" with no explanation.
 	handle_path /pair-ws/* {
 		reverse_proxy pairpath-api:3001
+	}
+
+	# ── Code Coach's API, for the VS Code extension ──────────────────────────
+	# The editor is not a browser. It holds its own bearer token and calls Code
+	# Coach directly: to redeem the one-time code browser sign-in hands back, to
+	# analyse a file, to record events. The web app reaches Code Coach
+	# server-side through its BFF, but the extension has no BFF - so with Code
+	# Coach on the internal network only, sign-in opened the right page and the
+	# extension then had nowhere to redeem its code.
+	#
+	# /api/v1/* is Code Coach's whole route surface, and none of the web app's
+	# own paths start with it (those are /api/auth, /api/bff and /api/pair).
+	# /docs and /openapi.json stay internal. Every route checks its own bearer
+	# token, and the credential endpoints are rate-limited per client address,
+	# read from X-Forwarded-For - which Caddy sets from the real peer rather
+	# than trusting whatever a client sent.
+	handle /api/v1/* {
+		reverse_proxy code-coach:8080
 	}
 
 	# ── Everything else ──────────────────────────────────────────────────────

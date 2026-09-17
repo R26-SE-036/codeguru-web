@@ -70,3 +70,37 @@ export function buildLoopbackRedirect(redirectUri: string, code: string): string
   url.searchParams.set('code', code);
   return url.toString();
 }
+
+/**
+ * The same question for a redirect_uri read from `request.nextUrl` in
+ * middleware, where Next has already rewritten it.
+ *
+ * ================= WHY MIDDLEWARE CANNOT USE THE STRICT CHECK =================
+ * NextURL replaces the first loopback-looking hostname anywhere in a URL with
+ * "localhost" (REGEX_LOCALHOST_HOSTNAME in next/dist/server/web/next-url.js).
+ * Running `next dev` on localhost, the first match is the server's own host and
+ * nothing changes. In the container the server's host is 0.0.0.0, so the first
+ * match is the 127.0.0.1 inside the query string: the browser asks for
+ * redirect_uri=http://127.0.0.1:53682/callback and middleware reads
+ * http://localhost:53682/callback. The strict check refuses localhost, so a
+ * signed-in browser was sent to the home page and the editor never got a code.
+ * ============================================================================
+ *
+ * Accepting localhost here decides only whether the sign-in page renders; it
+ * mints nothing. The page reads redirect_uri from the browser's own address,
+ * and the handoff route checks the untouched value from its request body with
+ * isAllowedLoopbackRedirect before any code exists.
+ */
+export function isLoopbackRedirectSeenByMiddleware(value: string | null | undefined): boolean {
+  if (!value) return false;
+
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+
+  if (url.hostname === 'localhost') url.hostname = '127.0.0.1';
+  return isAllowedLoopbackRedirect(url.toString());
+}

@@ -83,13 +83,36 @@ async function readError(response: Response): Promise<string> {
   return `Request failed (${response.status}).`;
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+/**
+ * The student's address, passed on for Code Coach's per-client rate limit.
+ *
+ * ================ WHY EVERY CREDENTIAL CALL CARRIES IT ================
+ * Code Coach allows ten attempts a minute per client on register, login and
+ * refresh, and identifies the client by X-Forwarded-For - or, without one, by
+ * the socket peer. These calls are made by this server, so without the header
+ * the peer is the web container, and every student on the platform shared ONE
+ * bucket. The eleventh token refresh anywhere in a minute got 429; middleware
+ * reads a failed refresh as a spent session and signs that student out. A
+ * class of thirty arriving together would have been signed out in turns.
+ *
+ * `clientAddress` is the X-Forwarded-For this server received. Caddy sets it
+ * from the real peer, replacing anything a client sent, and the web container
+ * is reachable only through Caddy - so it names the student, not whoever typed
+ * a header. Absent (running `npm run dev` with no proxy), nothing is sent and
+ * Code Coach falls back to the peer, which is then the student's own machine.
+ * =======================================================================
+ */
+function forwardedFor(clientAddress?: string | null): Record<string, string> {
+  return clientAddress ? { 'X-Forwarded-For': clientAddress } : {};
+}
+
+async function postJson<T>(path: string, body: unknown, clientAddress?: string | null): Promise<T> {
   let response: Response;
 
   try {
     response = await fetch(`${baseUrl('coach')}/api/v1${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...forwardedFor(clientAddress) },
       body: JSON.stringify(body),
       cache: 'no-store',
     });
@@ -112,12 +135,16 @@ function toSession(auth: AuthResponse): Session {
   };
 }
 
-export async function login(identifier: string, password: string): Promise<Session> {
-  const auth = await postJson<AuthResponse>('/auth/login', {
-    identifier,
-    password,
-    client_name: CLIENT_NAME,
-  });
+export async function login(
+  identifier: string,
+  password: string,
+  clientAddress?: string | null,
+): Promise<Session> {
+  const auth = await postJson<AuthResponse>(
+    '/auth/login',
+    { identifier, password, client_name: CLIENT_NAME },
+    clientAddress,
+  );
   return toSession(auth);
 }
 
@@ -125,13 +152,13 @@ export async function register(
   fullName: string,
   email: string,
   password: string,
+  clientAddress?: string | null,
 ): Promise<Session> {
-  const auth = await postJson<AuthResponse>('/auth/register', {
-    full_name: fullName,
-    email,
-    password,
-    client_name: CLIENT_NAME,
-  });
+  const auth = await postJson<AuthResponse>(
+    '/auth/register',
+    { full_name: fullName, email, password, client_name: CLIENT_NAME },
+    clientAddress,
+  );
   return toSession(auth);
 }
 
@@ -143,10 +170,8 @@ export async function register(
  * refresh token destroys the session - which is why refresh happens in
  * middleware, once, ahead of any fan-out. See middleware.ts.
  */
-export async function refresh(refreshToken: string): Promise<Session> {
-  const auth = await postJson<AuthResponse>('/auth/refresh', {
-    refresh_token: refreshToken,
-  });
+export async function refresh(refreshToken: string, clientAddress?: string | null): Promise<Session> {
+  const auth = await postJson<AuthResponse>('/auth/refresh', { refresh_token: refreshToken }, clientAddress);
   return toSession(auth);
 }
 

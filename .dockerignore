@@ -12,3 +12,15 @@ tsconfig.tsbuildinfo
 .claude
 docs
 README.md
+
+# The test suites and their output. The image serves the app; nothing in it
+# runs tests, and leaving them out keeps `next build`'s type check to the app.
+tests
+test-results
+playwright-report
+vitest.config.ts
+vitest.system.config.ts
+playwright.config.ts
+
+# Deployment files, including deploy/aws/env/ with every service's credentials.
+deploy

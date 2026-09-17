@@ -105,6 +105,18 @@ export function formatConcept(value: string | undefined): string {
 }
 
 /**
+ * "LOOP_UPDATE_WRONG_DIRECTION" -> "Loop update wrong direction".
+ *
+ * Code Coach's error types are constants, written for a classifier. They are
+ * shown to a student when a recommendation says why it was made, so they read
+ * as a phrase - sentence case, no underscores - rather than as an enum value.
+ */
+export function formatErrorType(value: string | undefined | null): string {
+  const words = (value ?? '').toLowerCase().replace(/_/g, ' ').trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : '';
+}
+
+/**
  * How the difficulty was arrived at, as reported by the game endpoint.
  *
  * This is not decoration. `heuristic` means the ML service did not answer and
@@ -138,6 +150,9 @@ const COMPONENT_LABELS: Record<string, string> = {
   study_guider: 'Study',
   adaptive_gamification: 'Practice',
   pair_path: 'Pair',
+  // Code Coach's name for pair sessions reported into it - see
+  // collaboration_service.py there.
+  collaborative_studio: 'Pair',
 };
 
 export function formatComponent(value: string | undefined): string {
@@ -153,6 +168,7 @@ export function componentTone(value: string | undefined): string {
     case 'adaptive_gamification':
       return 'bg-hue-play/10 text-hue-play ring-hue-play/25';
     case 'pair_path':
+    case 'collaborative_studio':
       return 'bg-hue-pair/10 text-hue-pair ring-hue-pair/25';
     default:
       return 'bg-hue-insight/10 text-hue-insight ring-hue-insight/25';

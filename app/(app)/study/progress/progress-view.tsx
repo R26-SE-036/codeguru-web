@@ -115,6 +115,19 @@ interface Curriculum {
   total: number;
   counts: { mastered: number; in_progress: number; ready: number; locked: number };
   suggested_next: string | null;
+  review_due?: ReviewItem[];
+}
+
+/**
+ * A concept worth coming back to. `not_yet_known`: attempted, and knowledge
+ * tracing does not believe it yet. `not_practised_recently`: believed, but not
+ * practised for a while.
+ */
+interface ReviewItem {
+  concept: string;
+  reason: 'not_yet_known' | 'not_practised_recently';
+  probability_known: number;
+  days_since_practice: number | null;
 }
 
 interface Mastery {
@@ -362,6 +375,38 @@ export function ProgressView() {
           toneBg="bg-hue-insight/10"
         />
       </section>
+
+      {/* ── Due for review ──────────────────────────────────────────────
+          Above the map: the map says where the student stands on everything,
+          this says which few to come back to today. */}
+      {curriculum?.review_due && curriculum.review_due.length > 0 && (
+        <section>
+          <SectionTitle hint={`${curriculum.review_due.length} concept${curriculum.review_due.length === 1 ? '' : 's'}`}>
+            Due for review
+          </SectionTitle>
+          <Card className="divide-y divide-line overflow-hidden">
+            {curriculum.review_due.map((item) => (
+              <div
+                key={item.concept}
+                className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5"
+              >
+                <div>
+                  <p className="font-medium text-ink">{formatConcept(item.concept)}</p>
+                  <p className="mt-0.5 text-xs text-muted">
+                    {reviewReason(item)}
+                  </p>
+                </div>
+                <Link
+                  href={`/study?concept=${encodeURIComponent(item.concept)}`}
+                  className={buttonClass({ variant: 'secondary', size: 'sm' })}
+                >
+                  Find its lesson
+                </Link>
+              </div>
+            ))}
+          </Card>
+        </section>
+      )}
 
       {/* ── The whole curriculum ────────────────────────────────────────
           Rendered outside the hasHistory gate on purpose. This is the part
@@ -765,6 +810,19 @@ function formatDuration(seconds: number): string {
 
   const hours = Math.floor(minutes / 60);
   return `${hours}h ${String(minutes % 60).padStart(2, '0')}m`;
+}
+
+/** Why a concept is on the review list, in a line a student reads. */
+function reviewReason(item: ReviewItem): string {
+  const known = `${Math.round(item.probability_known * 100)}% known`;
+  const days = item.days_since_practice;
+  const when =
+    days === null ? null : days === 0 ? 'practised today' : `last practised ${days} day${days === 1 ? '' : 's'} ago`;
+
+  if (item.reason === 'not_practised_recently') {
+    return `Mastered, but not practised for ${days} days — a quick quiz keeps it that way.`;
+  }
+  return when ? `Not known yet · ${known} · ${when}` : `Not known yet · ${known}`;
 }
 
 

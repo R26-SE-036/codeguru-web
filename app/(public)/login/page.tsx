@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowRight, Loader2 } from 'lucide-react';
 
+import { ConnectEditor, useEditorSignInState } from '@/components/connect-editor';
 import { Field, FormError } from '@/components/field';
 import { buttonClass } from '@/components/ui';
 import { completeExtensionHandoff } from '@/lib/extension-handoff';
@@ -35,6 +36,11 @@ function LoginForm() {
   // back to "Sign in" while the browser is leaving the page.
   const [handoffDone, setHandoffDone] = useState(false);
 
+  // Opened by the VS Code extension in a browser that is already signed in:
+  // offer to connect the editor rather than asking for a password again.
+  const redirectUri = params.get('redirect_uri');
+  const editor = useEditorSignInState(redirectUri);
+
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -62,7 +68,7 @@ function LoginForm() {
       // waits for a one-time code. Handled before the normal redirect, because
       // for that flow finishing here would leave the editor waiting until it
       // timed out - which is exactly what it did before this existed.
-      const handoff = await completeExtensionHandoff(params.get('redirect_uri'));
+      const handoff = await completeExtensionHandoff(redirectUri);
       if (handoff) {
         setHandoffDone(true);
         window.location.href = handoff;
@@ -84,6 +90,20 @@ function LoginForm() {
     } finally {
       if (!handoffDone) setBusy(false);
     }
+  }
+
+  if (editor.state.status === 'checking') {
+    return <div className="h-[268px]" />;
+  }
+
+  if (editor.state.status === 'signed-in' && redirectUri) {
+    return (
+      <ConnectEditor
+        user={editor.state.user}
+        redirectUri={redirectUri}
+        onUseAnotherAccount={editor.useAnotherAccount}
+      />
+    );
   }
 
   return (

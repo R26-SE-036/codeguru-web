@@ -64,6 +64,9 @@ export function QuizView({ triggerId }: { triggerId: string }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [checked, setChecked] = useState(false);
   const [score, setScore] = useState(0);
+  // Positions of the questions answered wrongly, for the "worth another look"
+  // list at the end. Kept with the rest of the attempt so a refresh keeps it.
+  const [missed, setMissed] = useState<number[]>([]);
   const [finished, setFinished] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -95,6 +98,11 @@ export function QuizView({ triggerId }: { triggerId: string }) {
               setQuestions(parsed.questions);
               setIndex(parsed.index ?? 0);
               setScore(parsed.score ?? 0);
+              setMissed(
+                Array.isArray(parsed.missed)
+                  ? parsed.missed.filter((n: unknown) => typeof n === 'number')
+                  : [],
+              );
               return;
             }
           }
@@ -120,7 +128,11 @@ export function QuizView({ triggerId }: { triggerId: string }) {
         setError(
           err instanceof ApiError && err.isUnavailable
             ? 'Study Guider is unavailable right now. Please try again shortly.'
-            : 'Could not load the quiz.',
+            : // The daily generation limit. "Try again shortly" would be wrong
+              // advice, and the backend's message says what is actually true.
+              err instanceof ApiError && err.status === 429
+              ? err.message
+              : 'Could not load the quiz.',
         );
       }
     })();
@@ -136,12 +148,12 @@ export function QuizView({ triggerId }: { triggerId: string }) {
     try {
       sessionStorage.setItem(
         storageKey(triggerId),
-        JSON.stringify({ questions, index, score }),
+        JSON.stringify({ questions, index, score, missed }),
       );
     } catch {
       // Storage unavailable; the quiz still works, it just will not resume.
     }
-  }, [questions, index, score, finished, triggerId]);
+  }, [questions, index, score, missed, finished, triggerId]);
 
   /**
    * The original's lenient comparison, kept.
@@ -287,6 +299,61 @@ export function QuizView({ triggerId }: { triggerId: string }) {
             </div>
           </div>
         </Card>
+
+        {/*
+          The score says how many; this says which. Each missed question with
+          its right answer and why, and a way back to the lesson - so a student
+          under the pass mark knows what to re-read rather than only that they
+          should, and one who passed still sees what they got wrong.
+        */}
+        {missed.length > 0 && (
+          <Card className="p-6">
+            <h2 className="font-bold text-ink">Worth another look</h2>
+            <p className="mt-1 text-sm text-muted">
+              {missed.length === 1
+                ? 'The question you missed, and why the answer is what it is.'
+                : `The ${missed.length} questions you missed, and why the answers are what they are.`}
+            </p>
+            <ol className="mt-4 space-y-4">
+              {[...missed]
+                .sort((a, b) => a - b)
+                .filter((position) => questions[position])
+                .map((position) => {
+                  const item = questions[position];
+                  return (
+                    <li key={position} className="flex gap-3">
+                      <CircleX
+                        size={18}
+                        strokeWidth={2.2}
+                        aria-hidden
+                        className="mt-0.5 shrink-0 text-warn"
+                      />
+                      <div>
+                        <p className="font-medium text-ink">
+                          <span className="text-muted">Q{position + 1}. </span>
+                          {item.question}
+                        </p>
+                        <p className="mt-1 text-sm text-body">
+                          <span className="font-semibold text-ok">Answer: </span>
+                          {item.correct_answer}
+                        </p>
+                        {item.explanation && (
+                          <p className="mt-1 text-sm text-muted">{item.explanation}</p>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+            </ol>
+            <Link
+              href={`/study/${encodeURIComponent(triggerId)}/lesson`}
+              className={buttonClass({ variant: 'secondary', size: 'sm', className: 'mt-5' })}
+            >
+              <ArrowLeft size={14} strokeWidth={2.4} aria-hidden />
+              Re-read the lesson
+            </Link>
+          </Card>
+        )}
 
         {/*
           These two are reported separately because they mean different things.
@@ -453,7 +520,11 @@ export function QuizView({ triggerId }: { triggerId: string }) {
             disabled={selected === null}
             onClick={() => {
               setChecked(true);
-              if (matches(selected, question.correct_answer)) setScore((s) => s + 1);
+              if (matches(selected, question.correct_answer)) {
+                setScore((s) => s + 1);
+              } else {
+                setMissed((m) => (m.includes(index) ? m : [...m, index]));
+              }
             }}
             className={buttonClass({ size: 'lg' })}
           >

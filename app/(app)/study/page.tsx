@@ -29,7 +29,12 @@ interface Trigger {
   learning_session_id?: string;
   concept_tag: string;
   error_type?: string;
-  reason?: string;
+  /**
+   * Why this lesson. Study Guider sends it as `rationale`. This read `reason`,
+   * which that response has never contained, so the explanation under every
+   * card was silently never rendered.
+   */
+  rationale?: string;
   struggle_level?: string;
   repeat_count?: number;
   intervention_status?: string;
@@ -199,9 +204,9 @@ export default async function StudyPage({
                   ) : null}
                 </p>
 
-                {trigger.reason && (
+                {trigger.rationale && (
                   <p className="mt-3 rounded-cg bg-card-alt px-3 py-2.5 text-sm text-body">
-                    {trigger.reason}
+                    {trigger.rationale}
                   </p>
                 )}
 

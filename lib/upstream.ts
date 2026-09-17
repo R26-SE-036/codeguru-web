@@ -62,8 +62,15 @@ const UPSTREAMS: Record<ServiceKey, Upstream> = {
   },
 };
 
+/**
+ * Own keys only. `value in UPSTREAMS` also answered true for every name a plain
+ * object inherits - toString, constructor, __proto__ - so /api/bff/toString/x
+ * passed as a known service and went on to build an "upstream" out of
+ * Object.prototype's method, attaching the student's platform token on the
+ * way. It failed further down; it should never have got that far.
+ */
 export function isServiceKey(value: string): value is ServiceKey {
-  return value in UPSTREAMS;
+  return Object.hasOwn(UPSTREAMS, value);
 }
 
 /**
@@ -92,11 +99,56 @@ export function baseUrl(service: ServiceKey): string {
   return upstream.devDefault;
 }
 
-/** Build the upstream URL for a proxied request. */
+/** A path that would leave the service's own API if it were forwarded. */
+export class UnsafeUpstreamPathError extends Error {
+  constructor(path: string) {
+    super(`Refusing to forward the path ${JSON.stringify(path)}.`);
+    this.name = 'UnsafeUpstreamPathError';
+  }
+}
+
+/** `.` or `..`, including the percent-encoded spellings URL parsing treats as dots. */
+const DOT_SEGMENT = /^(?:\.|%2e){1,2}$/i;
+
+/**
+ * Build the upstream URL for a proxied request.
+ *
+ * ==================== WHY THE PATH IS CHECKED HERE ====================
+ * The proxy's path arrives as segments Next has already percent-decoded. A
+ * browser normalises a literal `/../`, but `..%2F..%2Fopenapi.json` reaches
+ * the route as one segment, `../../openapi.json`, and joining the segments
+ * back into a URL turned it into real dot segments that fetch() resolved:
+ *
+ *     /api/bff/coach/..%2F..%2Fopenapi.json -> http://code-coach:8080/openapi.json
+ *
+ * So any signed-in student could reach any path on any of the four APIs -
+ * Code Coach's unauthenticated root /analyze and its schema among them - with
+ * their token attached. `\` did the same, since URL parsing reads it as `/`
+ * for http, and a double-encoded `%252e%252e` arrived as `%2e%2e`, which URL
+ * parsing also treats as `..`.
+ *
+ * Refused two ways: no segment may be a dot segment or contain a backslash,
+ * and the URL as fetch() will resolve it must still be inside the service's
+ * base path. The second is the one that matters; the first gives the reason.
+ * =====================================================================
+ */
 export function upstreamUrl(service: ServiceKey, path: string, search: string): string {
   const upstream = UPSTREAMS[service];
   const suffix = path.startsWith('/') ? path : `/${path}`;
-  return `${baseUrl(service)}${upstream.basePath}${suffix}${search}`;
+
+  if (suffix.includes('\\') || suffix.split('/').some((segment) => DOT_SEGMENT.test(segment))) {
+    throw new UnsafeUpstreamPathError(path);
+  }
+
+  const base = new URL(`${baseUrl(service)}${upstream.basePath}/`);
+  const url = `${baseUrl(service)}${upstream.basePath}${suffix}${search}`;
+  const resolved = new URL(url);
+
+  if (resolved.origin !== base.origin || !`${resolved.pathname}/`.startsWith(base.pathname)) {
+    throw new UnsafeUpstreamPathError(path);
+  }
+
+  return url;
 }
 
 /**

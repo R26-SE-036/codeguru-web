@@ -19,7 +19,13 @@ import {
   unsealSession,
 } from '@/lib/session';
 import { exchangeForPairPath } from '@/lib/code-coach';
-import { credentialKind, isServiceKey, tokenFor, upstreamUrl } from '@/lib/upstream';
+import {
+  UnsafeUpstreamPathError,
+  credentialKind,
+  isServiceKey,
+  tokenFor,
+  upstreamUrl,
+} from '@/lib/upstream';
 
 /** Hop-by-hop and body-framing headers must not be forwarded. */
 const STRIPPED = new Set([
@@ -41,6 +47,18 @@ async function proxy(
 
   if (!isServiceKey(service)) {
     return NextResponse.json({ detail: `Unknown service '${service}'.` }, { status: 404 });
+  }
+
+  // Before the session is read, so a probe learns nothing about whether it is
+  // signed in. See upstreamUrl for the paths this refuses and why.
+  let url: string;
+  try {
+    url = upstreamUrl(service, `/${path.join('/')}`, request.nextUrl.search);
+  } catch (error) {
+    if (error instanceof UnsafeUpstreamPathError) {
+      return NextResponse.json({ detail: 'Invalid path.' }, { status: 400 });
+    }
+    throw error;
   }
 
   // Middleware has already rejected requests with no session, but this route
@@ -112,8 +130,6 @@ async function proxy(
   request.headers.forEach((value, key) => {
     if (!STRIPPED.has(key.toLowerCase())) headers.set(key, value);
   });
-
-  const url = upstreamUrl(service, `/${path.join('/')}`, request.nextUrl.search);
 
   const method = request.method;
   // GET and HEAD must not carry a body.

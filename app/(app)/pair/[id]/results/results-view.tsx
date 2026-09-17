@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, CircleCheck, Hourglass, Users } from 'lucide-react';
+import { ArrowLeft, CircleCheck, CircleX, Hourglass, Users } from 'lucide-react';
 
 import { ApiError, api } from '@/lib/api';
 import { usePairSocket } from '@/lib/use-pair-socket';
@@ -48,9 +48,16 @@ interface Result {
   recommendations: string[];
 }
 
+/** From GET /sessions/:id/outcome - see session-outcome.ts in the API. */
+interface Outcome {
+  solved: boolean | null;
+  secondsToSolve: number | null;
+}
+
 export function ResultsView({ sessionId, userId }: { sessionId: string; userId: string }) {
   const [result, setResult] = useState<Result | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'none' | 'unavailable'>('loading');
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -64,9 +71,41 @@ export function ResultsView({ sessionId, userId }: { sessionId: string; userId: 
     }
   }, [sessionId]);
 
+  /*
+    Report how this session went to Code Coach, where it moves the student's
+    concept mastery - and, for an exercise the pair did not solve, opens a
+    Study Guider lesson on it.
+
+    Here because every way out of a session ends on this page: whoever ends it
+    goes review then results, their partner is sent the same way by
+    `session_ended`, and a closed session redirects straight here. Fired and
+    forgotten: the route handler builds the outcome on the server and Code
+    Coach records each student's session once, so a reload sends a request
+    that changes nothing, and a failure costs nothing on this page.
+  */
+  useEffect(() => {
+    fetch(`/api/pair/outcome/${encodeURIComponent(sessionId)}`, {
+      method: 'POST',
+      credentials: 'same-origin',
+    }).catch(() => {});
+  }, [sessionId]);
+
   useEffect(() => {
     load();
   }, [load]);
+
+  // Independent of the reviews, and never fatal: a page that cannot say
+  // whether the exercise was solved can still show what the pair thought.
+  useEffect(() => {
+    let live = true;
+    api
+      .get<Outcome>('pair', `/sessions/${sessionId}/outcome`)
+      .then((data) => live && setOutcome(data))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [sessionId]);
 
   // Watching, not joining. join_room writes a JOIN event, and a student opening
   // results after the session ended is not session activity - those rows would
@@ -103,6 +142,8 @@ export function ResultsView({ sessionId, userId }: { sessionId: string; userId: 
         <ArrowLeft size={15} strokeWidth={2.4} aria-hidden />
         Pairing
       </Link>
+
+      {outcome && outcome.solved !== null && <SolvedLine outcome={outcome} />}
 
       {waiting ? (
         <Card className="px-6 py-12 text-center">
@@ -142,6 +183,48 @@ export function ResultsView({ sessionId, userId }: { sessionId: string; userId: 
         </Link>
       </div>
     </div>
+  );
+}
+
+/**
+ * Whether the exercise itself was solved - the other half of how it went.
+ *
+ * The review is what the two students thought of their collaboration; this is
+ * whether their program ended up right. The page showed only the first, so a
+ * pair who reviewed each other generously on an exercise they never got
+ * working looked the same here as a pair who solved it in four minutes and
+ * were hard on themselves.
+ *
+ * Nothing at all when nothing could be graded - no runs, or an exercise with
+ * no single right output. "Not solved" would be a claim the record cannot
+ * support.
+ */
+function SolvedLine({ outcome }: { outcome: Outcome }) {
+  if (outcome.solved) {
+    const minutes =
+      outcome.secondsToSolve === null ? null : Math.max(1, Math.round(outcome.secondsToSolve / 60));
+
+    return (
+      <Card className="flex items-center gap-3 border-l-4 border-l-ok px-5 py-4">
+        <CircleCheck size={20} strokeWidth={2.3} aria-hidden className="shrink-0 text-ok" />
+        <p className="text-body">
+          <span className="font-semibold text-ink">Solved.</span>{' '}
+          {minutes === null
+            ? 'Your program produced the expected output.'
+            : `Your program produced the expected output ${minutes} min in.`}
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="flex items-center gap-3 border-l-4 border-l-warn px-5 py-4">
+      <CircleX size={20} strokeWidth={2.3} aria-hidden className="shrink-0 text-warn" />
+      <p className="text-body">
+        <span className="font-semibold text-ink">Not solved this time.</span> No run produced the
+        expected output before the session ended.
+      </p>
+    </Card>
   );
 }
 

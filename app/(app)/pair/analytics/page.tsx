@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { BarChart3, Loader2 } from 'lucide-react';
+import { BarChart3, Bot, Loader2 } from 'lucide-react';
 
 import { ApiError, api } from '@/lib/api';
 import {
@@ -51,12 +51,33 @@ interface SessionDetail {
   predictions?: Prediction[];
 }
 
+/** GET /sessions/analytics/interventions - see nudge-effect.ts in the API. */
+interface EffectGroup {
+  key: string;
+  shown: number;
+  measured: number;
+  improved: number;
+  unchanged: number;
+  otherChange: number;
+  enoughToCompare: boolean;
+}
+
+interface NudgeEffect {
+  windowSeconds: number;
+  horizonMinutes: number;
+  minToCompare: number;
+  byResponse: EffectGroup[];
+  byState: EffectGroup[];
+  reinforcement: EffectGroup;
+}
+
 export default function AnalyticsPage() {
   const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [effect, setEffect] = useState<NudgeEffect | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -68,6 +89,14 @@ export default function AnalyticsPage() {
         setUnavailable(err instanceof ApiError && err.isUnavailable);
         setSessions([]);
       });
+
+    // Separate, and never fatal: a page that cannot say whether the nudges
+    // helped can still show every session.
+    api
+      .get<NudgeEffect>('pair', '/sessions/analytics/interventions')
+      .then((data) => live && setEffect(data))
+      .catch(() => {});
+
     return () => {
       live = false;
     };
@@ -95,6 +124,8 @@ export default function AnalyticsPage() {
         tone="text-hue-insight"
         toneBg="bg-hue-insight/10"
       />
+
+      {effect && !unavailable && <NudgeEffectCard effect={effect} />}
 
       {unavailable ? (
         <Unavailable what="Session analytics" />
@@ -142,6 +173,150 @@ export default function AnalyticsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+const RESPONSE_LABEL: Record<string, string> = {
+  accepted: 'Marked it helpful',
+  dismissed: 'Dismissed it',
+  no_response: 'Did not respond',
+};
+
+/**
+ * Did the nudges change what the model saw next?
+ *
+ * The research question this component exists for, asked of the data for the
+ * first time. Every nudge recorded the state that triggered it and whether
+ * the pair accepted it, and every minute the model recorded what it saw -
+ * and nothing had ever put the two side by side.
+ *
+ * Counts always; percentages only once a row has enough measured nudges to be
+ * worth reading. "100%" from two nudges is a coincidence dressed as a finding,
+ * and this page would be the easiest place in the project to mistake one for
+ * the other.
+ */
+function NudgeEffectCard({ effect }: { effect: NudgeEffect }) {
+  const problemShown = effect.byResponse.reduce((sum, group) => sum + group.shown, 0);
+  if (problemShown === 0 && effect.reinforcement.shown === 0) return null;
+
+  const reinforcement = effect.reinforcement;
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center gap-3 border-b border-line px-5 py-4">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-cg bg-hue-insight/10 text-hue-insight">
+          <Bot size={17} strokeWidth={2.2} aria-hidden />
+        </span>
+        <div>
+          <h2 className="font-semibold text-ink">Did the nudges help?</h2>
+          <p className="text-sm text-muted">
+            What the model saw next, after each nudge in your sessions.
+          </p>
+        </div>
+      </div>
+
+      {problemShown > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
+                <th scope="col" className="px-5 py-2.5 font-semibold">
+                  When the pair…
+                </th>
+                <th scope="col" className="px-3 py-2.5 text-right font-semibold">
+                  Shown
+                </th>
+                <th scope="col" className="px-3 py-2.5 text-right font-semibold">
+                  Measured
+                </th>
+                <th scope="col" className="px-3 py-2.5 text-right font-semibold">
+                  Recovered
+                </th>
+                <th scope="col" className="px-3 py-2.5 text-right font-semibold">
+                  Same state
+                </th>
+                <th scope="col" className="px-5 py-2.5 text-right font-semibold">
+                  Other problem
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {effect.byResponse.map((group) => (
+                <EffectRow
+                  key={group.key}
+                  label={RESPONSE_LABEL[group.key] ?? group.key}
+                  group={group}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {effect.byState.length > 0 && (
+        <div className="flex flex-wrap gap-x-6 gap-y-2 border-t border-line px-5 py-3 text-sm">
+          {effect.byState.map((group) => (
+            <span key={group.key} className="inline-flex items-center gap-2">
+              <Badge tone={STATE_TONE[group.key] ?? 'neutral'}>{stateLabel(group.key)}</Badge>
+              <span className="text-muted">
+                {group.improved} of {group.measured} measured recovered
+              </span>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {reinforcement.shown > 0 && (
+        <p className="border-t border-line px-5 py-3 text-sm text-body">
+          Encouragement on a productive pair: {reinforcement.improved} of{' '}
+          {reinforcement.measured} measured stayed productive
+          {reinforcement.shown > reinforcement.measured
+            ? `, ${reinforcement.shown - reinforcement.measured} not measured`
+            : ''}
+          .
+        </p>
+      )}
+
+      <p className="border-t border-line bg-card-alt px-5 py-3 text-xs text-muted">
+        &ldquo;Next&rdquo; is the first prediction made only from activity after the nudge — at
+        least {Math.round(effect.windowSeconds / 60)} minutes on, and within{' '}
+        {effect.horizonMinutes}. These are counts, not proof: a pair chooses whether to accept a
+        nudge, and the model reading both sides of it was trained on simulated sessions.
+        Percentages appear once a row has {effect.minToCompare} measured nudges.
+      </p>
+    </Card>
+  );
+}
+
+function EffectRow({ label, group }: { label: string; group: EffectGroup }) {
+  const rate = (count: number) =>
+    group.enoughToCompare && group.measured > 0 ? (
+      <span className="ml-1 text-xs text-muted">({Math.round((100 * count) / group.measured)}%)</span>
+    ) : null;
+
+  return (
+    <tr>
+      <th scope="row" className="px-5 py-2.5 text-left font-medium text-ink">
+        {label}
+        {!group.enoughToCompare && group.measured > 0 ? (
+          <span className="ml-2 text-xs font-normal text-muted">too few to compare</span>
+        ) : null}
+      </th>
+      <td className="px-3 py-2.5 text-right tabular-nums text-muted">{group.shown}</td>
+      <td className="px-3 py-2.5 text-right tabular-nums text-muted">{group.measured}</td>
+      <td className="px-3 py-2.5 text-right tabular-nums text-ink">
+        {group.improved}
+        {rate(group.improved)}
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums text-ink">
+        {group.unchanged}
+        {rate(group.unchanged)}
+      </td>
+      <td className="px-5 py-2.5 text-right tabular-nums text-ink">
+        {group.otherChange}
+        {rate(group.otherChange)}
+      </td>
+    </tr>
   );
 }
 

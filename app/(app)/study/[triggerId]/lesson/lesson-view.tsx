@@ -121,6 +121,55 @@ interface LessonContent {
   videoUrl?: string;
   referenceLink?: string;
   mermaidDiagram?: string;
+  /**
+   * What the lesson was written with. `syllabus_notes` is found, none_found,
+   * unavailable or unknown (cached before this was recorded); `student_record`
+   * is read, unavailable, no_concept or unknown.
+   */
+  grounding?: { syllabus_notes?: string; student_record?: string };
+  /**
+   * The syllabus notes the lesson says it drew on, checked on the server
+   * against the notes it was actually given - a citation to a note that was
+   * never offered is dropped there, not shown here.
+   */
+  sources?: { id: string; concept?: string; source?: string }[];
+  /**
+   * Concepts this one builds on that knowledge tracing does not yet believe the
+   * student knows. Empty when there are none, or when the record could not be
+   * read - the grounding notice covers that case.
+   */
+  unmet_prerequisites?: string[];
+}
+
+/**
+ * A sentence when the lesson was written without the course notes or without
+ * the student's record, and null when it was not.
+ *
+ * Without this a lesson written while the study graph was unreachable looked
+ * exactly like a grounded, personalised one. The lesson text itself cannot be
+ * trusted to say so, and "unknown" (an older cached lesson) says nothing
+ * either way, so it gets no notice.
+ */
+function groundingNotice(grounding: LessonContent['grounding']): string | null {
+  const notes = grounding?.syllabus_notes;
+  const recordUnreadable = grounding?.student_record === 'unavailable';
+
+  if (notes === 'unavailable' && recordUnreadable) {
+    return "Study Guider couldn't reach your course notes or your progress record, so this lesson is written from general Java knowledge and doesn't know what you've already practised.";
+  }
+  if (notes === 'unavailable') {
+    return "Study Guider couldn't reach your course notes, so this lesson is written from general Java knowledge rather than from the course material.";
+  }
+  if (notes === 'none_found' && recordUnreadable) {
+    return "There are no course notes on this exact mistake and your progress record couldn't be read, so this lesson is written from general Java knowledge and doesn't know what you've already practised.";
+  }
+  if (notes === 'none_found') {
+    return 'There are no course notes on this exact mistake, so this lesson is written from general Java knowledge.';
+  }
+  if (recordUnreadable) {
+    return "Study Guider couldn't read your progress record, so this lesson doesn't know what you've already practised.";
+  }
+  return null;
 }
 
 export function LessonView({ triggerId }: { triggerId: string }) {
@@ -299,6 +348,43 @@ export function LessonView({ triggerId }: { triggerId: string }) {
         </h1>
       </header>
 
+      {groundingNotice(lesson?.grounding) && (
+        <p
+          role="status"
+          className="rounded-cg border border-warn/30 bg-warn/10 px-4 py-3 text-sm text-body"
+        >
+          {groundingNotice(lesson?.grounding)}
+        </p>
+      )}
+
+      {/* What this concept builds on that the student has not got yet. The
+          lesson prompt already knows, but a student reading a lesson that does
+          not land should be told where to go, not left to guess. */}
+      {lesson?.unmet_prerequisites && lesson.unmet_prerequisites.length > 0 && (
+        <Card className="flex gap-4 border-l-4 border-l-hue-study p-5">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-cg bg-hue-study/10 text-hue-study">
+            <BookOpen size={18} strokeWidth={2.2} aria-hidden />
+          </span>
+          <div>
+            <h2 className="font-bold text-ink">Worth a look first</h2>
+            <p className="mt-1 text-body">
+              This builds on{' '}
+              <span className="font-semibold text-ink">
+                {lesson.unmet_prerequisites.map((name) => formatConcept(name)).join(', ')}
+              </span>
+              , which you haven&apos;t mastered yet. If this lesson doesn&apos;t land,
+              start there.
+            </p>
+            <Link
+              href="/study/progress"
+              className="cg-focusable mt-2 inline-block rounded text-sm font-semibold text-accent hover:underline"
+            >
+              See your learning map
+            </Link>
+          </div>
+        </Card>
+      )}
+
       {lesson?.issue && (
         <Card className="flex gap-4 border-l-4 border-l-warn p-5">
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-cg bg-warn/10 text-warn">
@@ -320,6 +406,22 @@ export function LessonView({ triggerId }: { triggerId: string }) {
           <p className="mt-3 whitespace-pre-line leading-relaxed text-body">
             {lesson.explanation}
           </p>
+          {/* Only when the lesson cited notes. Saying "based on your course
+              notes" for a lesson that cited none would be the claim the
+              grounding work exists to stop making. */}
+          {lesson.sources && lesson.sources.length > 0 && (
+            <p className="mt-4 border-t border-line pt-3 text-sm text-muted">
+              Based on your course notes on{' '}
+              {Array.from(
+                new Set(
+                  lesson.sources
+                    .map((source) => formatConcept(source.concept || ''))
+                    .filter(Boolean),
+                ),
+              ).join(', ')}
+              .
+            </p>
+          )}
         </Card>
       )}
 
