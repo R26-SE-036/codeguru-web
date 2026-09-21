@@ -45,11 +45,11 @@ jobs:
     name: Build web
     needs: test
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    # This repository is private, and GitHub's arm64 runners are free only for
-    # public ones, so the arm64 image is built under QEMU emulation on an x86
-    # runner. Slower - most of it is `next build` - but the layer cache means
-    # only a change to package-lock.json pays for npm ci again.
-    runs-on: ubuntu-latest
+    # The server is arm64 (t4g), so the image is built on an arm64 runner
+    # rather than emulated. (While this repository was private it had to use
+    # QEMU on x86, since GitHub's arm64 runners are free only for public
+    # repositories - `next build` under emulation took most of ten minutes.)
+    runs-on: ubuntu-24.04-arm
     permissions:
       id-token: write
       contents: read
@@ -61,9 +61,6 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
       - id: ecr
         uses: aws-actions/amazon-ecr-login@v2
-      - uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
