@@ -52,7 +52,10 @@ describe('the server\'s compose file', () => {
 
     for (const [name, block] of Object.entries(aws)) {
       if (name === 'caddy') continue;
-      expect(setting(block, 'image'), name).toBe(`"\${REGISTRY:?}/codeguru/${name}:\${TAG:?}"`);
+      // Each repository deploys its own services, so each has its own tag,
+      // falling back to the TAG a full manual deploy sets for all of them.
+      const own = `${name.toUpperCase().replace(/-/g, '_')}_TAG`;
+      expect(setting(block, 'image'), name).toBe(`"\${REGISTRY:?}/codeguru/${name}:\${${own}:-\${TAG:?}}"`);
     }
   });
 
@@ -156,5 +159,24 @@ describe('the images and env files the server needs', () => {
   it('keeps those credentials out of git and out of the web image', () => {
     expect(read('.gitignore')).toMatch(/^deploy\/aws\/env\/$/m);
     expect(read('.dockerignore')).toMatch(/^deploy$/m);
+  });
+});
+
+describe('continuous deployment', () => {
+  const deployScript = read('deploy/aws/deploy-service.sh');
+
+  it('can update every service the registry supplies, and nothing else', () => {
+    const accepted = deployScript.match(/^ {2}([a-z|-]+)\) ;;$/m)?.[1].split('|') ?? [];
+    const pulled = Object.keys(aws).filter((name) => name !== 'caddy');
+    expect(accepted.sort()).toEqual(pulled.sort());
+  });
+
+  it('takes only a commit SHA as the tag, since the argument arrives from a workflow', () => {
+    expect(deployScript).toContain('^[0-9a-f]{7,40}$');
+  });
+
+  it('waits for the health check and rolls back when it fails', () => {
+    expect(deployScript).toMatch(/if wait_healthy; then/);
+    expect(deployScript).toMatch(/set_tag "\$previous"/);
   });
 });
