@@ -76,7 +76,7 @@ services:
   # ── Web tier / BFF ────────────────────────────────────────────────────────
   web:
     <<: *service
-    image: "${REGISTRY:?}/codeguru/web:${TAG:?}"
+    image: "${REGISTRY:?}/codeguru/web:${WEB_TAG:-${TAG:?}}"
     env_file: [env/web.env]
     environment:
       CODE_COACH_URL: http://code-coach:8080
@@ -96,7 +96,7 @@ services:
 
   code-coach:
     <<: *service
-    image: "${REGISTRY:?}/codeguru/code-coach:${TAG:?}"
+    image: "${REGISTRY:?}/codeguru/code-coach:${CODE_COACH_TAG:-${TAG:?}}"
     env_file: [env/code-coach.env]
     environment:
       CORS_ALLOWED_ORIGINS: "${PUBLIC_ORIGIN:?}"
@@ -107,7 +107,7 @@ services:
 
   study-guider:
     <<: *service
-    image: "${REGISTRY:?}/codeguru/study-guider:${TAG:?}"
+    image: "${REGISTRY:?}/codeguru/study-guider:${STUDY_GUIDER_TAG:-${TAG:?}}"
     env_file: [env/study-guider.env]
     environment:
       CODE_COACH_URL: http://code-coach:8080
@@ -120,7 +120,7 @@ services:
 
   pairpath-api:
     <<: *service
-    image: "${REGISTRY:?}/codeguru/pairpath-api:${TAG:?}"
+    image: "${REGISTRY:?}/codeguru/pairpath-api:${PAIRPATH_API_TAG:-${TAG:?}}"
     env_file: [env/pairpath-api.env]
     environment:
       # NODE_ENV stays the image's "production" - see the header.
@@ -141,7 +141,7 @@ services:
 
   pairpath-ml:
     <<: *service
-    image: "${REGISTRY:?}/codeguru/pairpath-ml:${TAG:?}"
+    image: "${REGISTRY:?}/codeguru/pairpath-ml:${PAIRPATH_ML_TAG:-${TAG:?}}"
     healthcheck:
       <<: *health
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
@@ -149,7 +149,7 @@ services:
 
   gamification-api:
     <<: *service
-    image: "${REGISTRY:?}/codeguru/gamification-api:${TAG:?}"
+    image: "${REGISTRY:?}/codeguru/gamification-api:${GAMIFICATION_API_TAG:-${TAG:?}}"
     env_file: [env/gamification.env]
     environment:
       CODE_COACH_URL: http://code-coach:8080
@@ -167,7 +167,7 @@ services:
 
   gamification-ml:
     <<: *service
-    image: "${REGISTRY:?}/codeguru/gamification-ml:${TAG:?}"
+    image: "${REGISTRY:?}/codeguru/gamification-ml:${GAMIFICATION_ML_TAG:-${TAG:?}}"
     env_file: [env/gamification.env]
     environment:
       PORT: "5000"
