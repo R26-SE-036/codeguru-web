@@ -338,6 +338,9 @@ export function PairView({ userId }: { userId: string }) {
   const [questionId, setQuestionId] = useState('');
   const [joinCode, setJoinCode] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // The page's own data failed to load, as opposed to an action failing. Only
+  // this one is worth a "Try again": retrying a join with a bad code is not.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [coachPrompts, setCoachPrompts] = useState<CoachPrompt[]>([]);
   const [consent, setConsent] = useState<ConsentStatus | null>(null);
@@ -349,6 +352,7 @@ export function PairView({ userId }: { userId: string }) {
   );
 
   const load = useCallback(async () => {
+    setLoadFailed(false);
     try {
       const [topicList, mySessions, prompts, consentStatus] = await Promise.all([
         api.get<Topic[]>('pair', '/topics'),
@@ -377,6 +381,7 @@ export function PairView({ userId }: { userId: string }) {
           ? 'Pairing is unavailable right now. Everything else still works.'
           : 'Could not load pairing.',
       );
+      setLoadFailed(true);
       setTopics([]);
     }
   }, []);
@@ -465,6 +470,22 @@ export function PairView({ userId }: { userId: string }) {
       />
 
       {error && <FormError>{error}</FormError>}
+
+      {loadFailed && (
+        <div>
+          <button
+            type="button"
+            className={buttonClass({ variant: 'secondary', size: 'sm' })}
+            onClick={() => {
+              setError(null);
+              setTopics(null);
+              load();
+            }}
+          >
+            Try again
+          </button>
+        </div>
+      )}
 
       {consent && <ConsentCard consent={consent} busy={consentBusy} onDecide={decideConsent} />}
 

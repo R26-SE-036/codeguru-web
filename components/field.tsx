@@ -89,3 +89,16 @@ export function FormError({ children }: { children: React.ReactNode }) {
     </p>
   );
 }
+
+/** The success counterpart to FormError: a confirmation the student should read. */
+export function FormSuccess({ children }: { children: React.ReactNode }) {
+  return (
+    <p
+      role="status"
+      className="flex items-start gap-2 rounded-cg border border-ok/30 bg-ok/10 px-3.5 py-2.5 text-sm font-medium text-ok"
+    >
+      <span aria-hidden className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-ok" />
+      {children}
+    </p>
+  );
+}

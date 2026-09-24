@@ -175,6 +175,25 @@ export async function refresh(refreshToken: string, clientAddress?: string | nul
   return toSession(auth);
 }
 
+/**
+ * The account-recovery calls: forgot password, reset password, and confirming
+ * a recovery email. None has a session to go with it - the student has lost
+ * their password, or is following a link from an email - so they are posted
+ * like sign-in, with the student's address for Code Coach's rate limit.
+ *
+ * Paths are an allow-list rather than a parameter from the browser, so the
+ * route calling this cannot be turned into a way to reach anything else.
+ */
+export type RecoveryAction = 'password/forgot' | 'password/reset' | 'recovery-email/confirm';
+
+export async function accountRecovery(
+  action: RecoveryAction,
+  body: Record<string, unknown>,
+  clientAddress?: string | null,
+): Promise<{ message: string }> {
+  return postJson<{ message: string }>(`/auth/${action}`, body, clientAddress);
+}
+
 /** Best effort: a failed logout must still clear the local session. */
 export async function logout(accessToken: string): Promise<void> {
   try {
@@ -215,6 +234,9 @@ export async function exchangeForPairPath(
       // which is a confusing way to learn you guessed the field name.
       body: JSON.stringify({ codeCoachAccessToken: accessToken }),
       cache: 'no-store',
+      // Bounded like the proxy's own calls: an exchange that never answers
+      // would otherwise hold the request that needed the token open with it.
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok) {

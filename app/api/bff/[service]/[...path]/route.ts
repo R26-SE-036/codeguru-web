@@ -27,6 +27,20 @@ import {
   upstreamUrl,
 } from '@/lib/upstream';
 
+/**
+ * How long one upstream call may take before the student is told so.
+ *
+ * There was no limit. A backend that accepted the connection and then never
+ * answered - PairPath waiting on a database connection that had died while
+ * idle - left the browser's request open indefinitely, and the /pair page sat
+ * on "Loading..." with no error and nothing to retry. Now the request fails
+ * with a 504 the page can report.
+ *
+ * Forty-five seconds is above anything a backend legitimately takes through
+ * this proxy; code runs, the slowest thing PairPath does, go over the socket.
+ */
+const UPSTREAM_TIMEOUT_MS = 45_000;
+
 /** Hop-by-hop and body-framing headers must not be forwarded. */
 const STRIPPED = new Set([
   'host',
@@ -147,7 +161,14 @@ async function proxy(
 
   const send = (bearer: string) => {
     headers.set('Authorization', `Bearer ${bearer}`);
-    return fetch(url, { method, headers, body, redirect: 'manual', cache: 'no-store' });
+    return fetch(url, {
+      method,
+      headers,
+      body,
+      redirect: 'manual',
+      cache: 'no-store',
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    });
   };
 
   let upstream: Response;
@@ -190,6 +211,14 @@ async function proxy(
       if (fresh) upstream = await send(fresh);
     }
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      console.error(`BFF: ${service} did not answer within ${UPSTREAM_TIMEOUT_MS} ms at ${url}`);
+      return NextResponse.json(
+        { detail: `${service} took too long to answer. Please try again.` },
+        { status: 504 },
+      );
+    }
+
     // The distinction this platform draws everywhere: a backend that cannot be
     // reached is 503, never 401. Answering 401 would make an outage look like a
     // rejected session and send the student to re-authenticate pointlessly.
