@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Download, KeyRound, Loader2, MailCheck, UserRound } from 'lucide-react';
+import { Download, FlaskConical, KeyRound, Loader2, MailCheck, UserRound } from 'lucide-react';
 
 import { ApiError, api } from '@/lib/api';
 import { Field, FormError, FormSuccess } from '@/components/field';
@@ -10,6 +10,126 @@ import { Card, PageHeader, SectionTitle, buttonClass } from '@/components/ui';
 
 interface Me {
   user: { full_name: string; email: string; recovery_email?: string | null };
+}
+
+/** GET/POST /api/v1/research/consent on Code Coach. */
+interface ResearchConsent {
+  version: string;
+  statement: {
+    title: string;
+    summary: string;
+    recorded: string[];
+    protections: string[];
+    voluntary: string;
+  };
+  decision: 'GRANTED' | 'DECLINED' | null;
+  collecting: boolean;
+  files_kept: number;
+}
+
+/**
+ * Whether the Java files Code Coach checks may be kept for research.
+ *
+ * The statement comes from Code Coach rather than being written here, so the
+ * page always shows exactly the wording - and version - a decision is stored
+ * against. Declining, at any time, deletes what was kept.
+ */
+function ResearchConsentCard() {
+  const [consent, setConsent] = useState<ResearchConsent | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .get<ResearchConsent>('coach', '/research/consent')
+      .then(setConsent)
+      .catch(() => setError('Could not load this right now.'));
+  }, []);
+
+  async function decide(decision: 'GRANTED' | 'DECLINED') {
+    setBusy(true);
+    setError(null);
+    try {
+      setConsent(await api.post<ResearchConsent>('coach', '/research/consent', { decision }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save your choice.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!consent) {
+    return <Card className="p-6">{error ? <FormError>{error}</FormError> : <div className="h-16" />}</Card>;
+  }
+
+  const { statement, decision } = consent;
+
+  return (
+    <Card className="space-y-4 p-6">
+      <div className="flex items-start gap-3">
+        <FlaskConical size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />
+        <div className="space-y-2">
+          <h3 className="font-semibold text-ink">{statement.title}</h3>
+          <p className="text-sm text-body">{statement.summary}</p>
+        </div>
+      </div>
+
+      <div className="grid gap-4 text-sm sm:grid-cols-2">
+        <div>
+          <p className="mb-1.5 font-semibold text-ink">What is kept</p>
+          <ul className="list-disc space-y-1 pl-5 text-body">
+            {statement.recorded.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <p className="mb-1.5 font-semibold text-ink">How it is protected</p>
+          <ul className="list-disc space-y-1 pl-5 text-body">
+            {statement.protections.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <p className="text-sm text-muted">{statement.voluntary}</p>
+
+      {!consent.collecting && (
+        <p className="text-sm text-muted">
+          Collection has not started yet: the study is waiting for ethics approval. Your choice is
+          saved, and nothing is kept until then.
+        </p>
+      )}
+
+      {decision && (
+        <FormSuccess>
+          {decision === 'GRANTED'
+            ? `You agreed. Files kept so far: ${consent.files_kept}.`
+            : 'You said no. Nothing is kept from you.'}
+        </FormSuccess>
+      )}
+      {error && <FormError>{error}</FormError>}
+
+      <div className="flex flex-wrap gap-2">
+        {decision !== 'GRANTED' && (
+          <button type="button" disabled={busy} onClick={() => decide('GRANTED')} className={buttonClass()}>
+            {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : null}I agree
+          </button>
+        )}
+        {decision !== 'DECLINED' && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => decide('DECLINED')}
+            className={buttonClass({ variant: decision === 'GRANTED' ? 'danger' : 'secondary' })}
+          >
+            {decision === 'GRANTED' ? 'Withdraw and delete my files' : 'No thanks'}
+          </button>
+        )}
+      </div>
+    </Card>
+  );
 }
 
 /**
@@ -161,6 +281,11 @@ export default function AccountPage() {
             Email me a reset link
           </Link>
         </Card>
+      </section>
+
+      <section>
+        <SectionTitle hint="Optional">Research</SectionTitle>
+        <ResearchConsentCard />
       </section>
 
       <section>
