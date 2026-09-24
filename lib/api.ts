@@ -31,7 +31,8 @@ export class ApiError extends Error {
    * for no reason, and it was a real bug in two of the four frontends.
    */
   get isUnavailable(): boolean {
-    return this.status === 503 || this.status === 0;
+    // 504 is the proxy giving up on a backend that did not answer in time.
+    return this.status === 503 || this.status === 504 || this.status === 0;
   }
 }
 

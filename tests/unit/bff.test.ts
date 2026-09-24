@@ -163,6 +163,19 @@ describe('forwarding', () => {
     expect(response.status).toBe(503);
   });
 
+  // PairPath once held a request open on a dead database connection and the
+  // /pair page said "Loading..." forever. Every call now carries a deadline.
+  it('gives every upstream call a deadline, and reports running out of it as 504', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const upstream = stubUpstream(new DOMException('The operation was aborted due to timeout', 'TimeoutError'));
+
+    const response = await GET(await makeRequest('/api/bff/pair/topics', { session: makeSession() }), context('pair', 'topics'));
+
+    expect(sent(upstream).init.signal).toBeInstanceOf(AbortSignal);
+    expect(response.status).toBe(504);
+    expect((await response.json()).detail).toMatch(/took too long/);
+  });
+
   it('does not retry a 401 from a platform-token service', async () => {
     const upstream = stubUpstream(reply({ detail: 'expired' }, 401));
 

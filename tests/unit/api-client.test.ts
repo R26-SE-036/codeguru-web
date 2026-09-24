@@ -32,6 +32,7 @@ describe('errorMessage', () => {
 describe('ApiError.isUnavailable', () => {
   it.each([
     [503, true],
+    [504, true],
     [0, true],
     [401, false],
     [403, false],

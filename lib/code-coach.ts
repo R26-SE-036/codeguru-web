@@ -215,6 +215,9 @@ export async function exchangeForPairPath(
       // which is a confusing way to learn you guessed the field name.
       body: JSON.stringify({ codeCoachAccessToken: accessToken }),
       cache: 'no-store',
+      // Bounded like the proxy's own calls: an exchange that never answers
+      // would otherwise hold the request that needed the token open with it.
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok) {
