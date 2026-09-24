@@ -130,6 +130,10 @@ services:
       # NODE_ENV stays the image's "production" - see the header.
       CODE_COACH_URL: http://code-coach:8080
       ML_SERVICE_URL: http://pairpath-ml:8000
+      # Writes the review after a session. Needs INTERNAL_SERVICE_KEY, the
+      # same value in both services' env files; without it every review is
+      # the exercise's fixed questions.
+      STUDY_GUIDER_URL: http://study-guider:8010
       CODE_RUNNER_LAMBDA_FUNCTION: "${CODE_RUNNER_LAMBDA_FUNCTION:?}"
       AWS_REGION: "${AWS_REGION:-ap-south-1}"
       CORS_ORIGINS: "${PUBLIC_ORIGIN:?}"

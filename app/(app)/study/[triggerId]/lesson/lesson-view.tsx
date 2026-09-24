@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import {
@@ -18,8 +18,11 @@ import {
 } from 'lucide-react';
 
 import { ApiError, api } from '@/lib/api';
+import { flowPath } from '@/lib/flowchart';
 import { formatConcept } from '@/lib/vocabulary';
 import { Badge, Card, buttonClass } from '@/components/ui';
+
+import FlowSteps from './flow-steps';
 
 // Mermaid renders its own SVG in the browser and touches `document` on import,
 // so it cannot run during SSR. Loaded only on the client, and only when a
@@ -180,6 +183,7 @@ export function LessonView({ triggerId }: { triggerId: string }) {
   const [cognitiveState, setCognitiveState] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const flowSteps = useMemo(() => flowPath(lesson?.mermaidDiagram), [lesson?.mermaidDiagram]);
 
   useEffect(() => {
     let live = true;
@@ -480,8 +484,14 @@ export function LessonView({ triggerId }: { triggerId: string }) {
             <GitBranch size={17} strokeWidth={2.2} aria-hidden className="text-hue-pair" />
             How it flows
           </h2>
-          <div className="mt-4 overflow-x-auto">
-            <MermaidDiagram chart={lesson.mermaidDiagram} />
+          <div className="mt-5 overflow-x-auto">
+            {/* A straight line of steps is drawn as a step flow; a chart that
+                branches is left to Mermaid, which lays graphs out properly. */}
+            {flowSteps ? (
+              <FlowSteps steps={flowSteps} />
+            ) : (
+              <MermaidDiagram chart={lesson.mermaidDiagram} />
+            )}
           </div>
         </Card>
       )}
