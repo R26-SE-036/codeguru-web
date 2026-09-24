@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LogOut, Menu, X } from 'lucide-react';
+import { Download, LogOut, Menu, X } from 'lucide-react';
 import clsx from 'clsx';
 
 import { SECTIONS, activeSection } from '@/lib/nav';
@@ -145,13 +145,18 @@ export function AppShell({
         </nav>
 
         <div className="mt-4 space-y-3 border-t border-line pt-4">
-          <div className="flex items-center gap-3 px-1">
+          <ExtensionLink />
+          <Link
+            href="/account"
+            title="Your account"
+            className="cg-focusable flex items-center gap-3 rounded-cg-sm px-1 py-1 transition hover:bg-card-alt"
+          >
             <Avatar initials={initials} />
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold text-ink">{name}</div>
               <div className="truncate text-xs text-muted">{email}</div>
             </div>
-          </div>
+          </Link>
 
           <div className="flex items-center justify-between gap-2 px-1">
             <ThemeToggle />
@@ -243,13 +248,17 @@ export function AppShell({
             </nav>
 
             <div className="space-y-3 border-t border-line pt-4">
-              <div className="flex items-center gap-3">
+              <ExtensionLink />
+              <Link
+                href="/account"
+                className="cg-focusable flex items-center gap-3 rounded-cg-sm py-1 transition hover:bg-card-alt"
+              >
                 <Avatar initials={initials} />
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-ink">{name}</div>
                   <div className="truncate text-xs text-muted">{email}</div>
                 </div>
-              </div>
+              </Link>
 
               <button
                 type="button"
@@ -321,6 +330,22 @@ function NavLink({
         )}
       </span>
     </Link>
+  );
+}
+
+/**
+ * The VS Code extension, from any page. A plain <a>: it is a file download via
+ * a redirect (app/download/vscode-extension), not a page to route to.
+ */
+function ExtensionLink() {
+  return (
+    <a
+      href="/download/vscode-extension"
+      className="cg-focusable flex items-center gap-2 rounded-cg-sm px-2 py-1.5 text-sm font-medium text-muted transition hover:bg-card-alt hover:text-ink"
+    >
+      <Download size={15} strokeWidth={2.2} aria-hidden />
+      Get the VS Code extension
+    </a>
   );
 }
 

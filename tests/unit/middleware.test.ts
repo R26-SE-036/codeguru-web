@@ -3,9 +3,12 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/lib/code-coach', () => ({ refresh: vi.fn() }));
+vi.mock('@/lib/code-coach', async (importOriginal) => ({
+  AuthError: (await importOriginal<typeof import('@/lib/code-coach')>()).AuthError,
+  refresh: vi.fn(),
+}));
 
-import { refresh } from '@/lib/code-coach';
+import { AuthError, refresh } from '@/lib/code-coach';
 import { SESSION_COOKIE, unsealSession } from '@/lib/session';
 import { config, middleware } from '@/middleware';
 import { ORIGIN, makeRequest, makeSession } from './helpers';
@@ -50,6 +53,18 @@ describe('with a session', () => {
     expect(passedThrough(response)).toBe(true);
     expect(refresh).not.toHaveBeenCalled();
   });
+
+  // Opened from links in emails, often in a browser that is already signed
+  // in; redirecting it away would throw the link's token away with it.
+  it.each(['/forgot-password', '/reset-password', '/confirm-email', '/download/vscode-extension'])(
+    'opens %s signed in or signed out, without redirecting',
+    async (path) => {
+      for (const session of [undefined, makeSession()]) {
+        const response = await middleware(await makeRequest(path, { session }));
+        expect(response.headers.get('location')).toBeNull();
+      }
+    },
+  );
 
   it('sends a signed-in student away from the login page to where they were going', async () => {
     const response = await middleware(await makeRequest('/login?next=%2Fplay', { session: makeSession() }));
@@ -134,6 +149,19 @@ describe('refreshing', () => {
 
     expect(response.headers.get('location')).toBe(`${ORIGIN}/login`);
     expect(response.headers.get('set-cookie')).toMatch(new RegExp(`${SESSION_COOKIE}=;`));
+  });
+
+  it.each([
+    [429, 'rate limited'],
+    [503, 'Code Coach down'],
+    [0, 'Code Coach unreachable'],
+  ])('keeps the session when the refresh is %i (%s), rather than signing the student out', async (status) => {
+    vi.mocked(refresh).mockRejectedValue(new AuthError('not now', status));
+
+    const response = await middleware(await makeRequest('/study', { session: expiring() }));
+
+    expect(response.headers.get('location')).toBeNull();
+    expect(response.headers.get('set-cookie')).toBeNull(); // the cookie is left alone
   });
 
   it('clears a spent session and answers an API call with 401', async () => {

@@ -20,7 +20,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { refresh } from './lib/code-coach';
+import { AuthError, refresh } from './lib/code-coach';
 import { isCrossSiteWrite } from './lib/cross-site';
 import { isLoopbackRedirectSeenByMiddleware } from './lib/loopback';
 import {
@@ -38,6 +38,20 @@ function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
+/**
+ * Reachable with or without a session, and never redirected away from.
+ *
+ * Password recovery and recovery-email confirmation are opened from links in
+ * an email, often in a browser that is already signed in - a student confirming
+ * a recovery address usually is. Sending a signed-in browser to the home page,
+ * as the sign-in pages do, would throw the link away.
+ */
+const OPEN_PATHS = ['/forgot-password', '/reset-password', '/confirm-email', '/download/vscode-extension'];
+
+function isOpen(pathname: string): boolean {
+  return OPEN_PATHS.includes(pathname);
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
 
@@ -49,6 +63,8 @@ export async function middleware(request: NextRequest) {
 
   // The auth routes establish a session, so they cannot be gated on having one.
   if (pathname.startsWith('/api/auth/')) return NextResponse.next();
+
+  if (isOpen(pathname)) return NextResponse.next();
 
   const session = await unsealSession(request.cookies.get(SESSION_COOKIE)?.value);
 
@@ -110,7 +126,19 @@ export async function middleware(request: NextRequest) {
     const response = NextResponse.next();
     response.cookies.set(SESSION_COOKIE, await sealSession(refreshed), cookieOptions());
     return response;
-  } catch {
+  } catch (error) {
+    // Only a refused refresh token ends the session. A refresh that was rate
+    // limited (429) or could not reach Code Coach (0, 5xx) says nothing about
+    // the session, and used to sign the student out anyway - in a lab sharing
+    // one address, for their classmates' traffic. Carry on with the session
+    // as it is; the next request tries the refresh again.
+    if (
+      error instanceof AuthError &&
+      (error.status === 0 || error.status === 429 || error.status >= 500)
+    ) {
+      return NextResponse.next();
+    }
+
     // The refresh token is genuinely spent or revoked. Clear the cookie and
     // send them to sign in - but only for page requests; an API caller gets a
     // 401 so it can decide for itself.

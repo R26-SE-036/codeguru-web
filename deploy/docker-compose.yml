@@ -125,6 +125,9 @@ services:
       dockerfile: Dockerfile
     image: code-coach:local
     env_file: [../../code-coach/backend/.env]
+    environment:
+      # Password-reset and recovery-email links open the site through Caddy.
+      PUBLIC_WEB_URL: "${PUBLIC_ORIGIN:-http://localhost:8080}"
     healthcheck:
       <<: *pyget
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]

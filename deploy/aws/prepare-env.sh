@@ -12,6 +12,7 @@
 #   INTEGRATION_*                  a test account's password, for local tests
 #   PORT                           the gamification file sets it for Node, and
 #                                  the ML service reads the same file
+#   MAIL_LOG_LINKS                 prints password-reset links in the log
 # Service addresses and CORS origins in these files are overridden by
 # docker-compose.yml, so their laptop values do no harm.
 set -euo pipefail
@@ -23,7 +24,7 @@ OUT="$HERE/env"
 umask 077
 mkdir -p "$OUT"
 
-DROP='^(CODE_RUNNER_ALLOW_UNSANDBOXED|INTEGRATION_[A-Z_]+|PORT)='
+DROP='^(CODE_RUNNER_ALLOW_UNSANDBOXED|INTEGRATION_[A-Z_]+|PORT|MAIL_LOG_LINKS)='
 
 copy() {
   local source="$ROOT/$1" target="$OUT/$2"

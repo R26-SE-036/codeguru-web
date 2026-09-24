@@ -129,6 +129,15 @@ function LoginForm() {
         placeholder="••••••••"
       />
 
+      <div className="-mt-2 text-right">
+        <Link
+          href="/forgot-password"
+          className="cg-focusable rounded text-sm font-semibold text-accent hover:underline"
+        >
+          Forgot password?
+        </Link>
+      </div>
+
       {error && <FormError>{error}</FormError>}
 
       <button

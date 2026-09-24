@@ -17,6 +17,7 @@ function RegisterForm() {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [handoffDone, setHandoffDone] = useState(false);
@@ -28,6 +29,14 @@ function RegisterForm() {
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
+
+    // Checked here, before anything is sent: a typo in a password nobody can
+    // see is an account the student cannot get back into.
+    if (password !== confirmPassword) {
+      setError('The two passwords do not match.');
+      return;
+    }
+
     setBusy(true);
     setError(null);
 
@@ -125,6 +134,22 @@ function RegisterForm() {
           onChange={(event) => setPassword(event.target.value)}
           placeholder="••••••••"
           hint="At least 8 characters."
+        />
+
+        <Field
+          label="Confirm password"
+          type="password"
+          autoComplete="new-password"
+          required
+          minLength={8}
+          value={confirmPassword}
+          onChange={(event) => setConfirmPassword(event.target.value)}
+          placeholder="••••••••"
+          hint={
+            confirmPassword && confirmPassword !== password
+              ? 'Does not match yet.'
+              : 'Type it again.'
+          }
         />
 
         {error && <FormError>{error}</FormError>}
