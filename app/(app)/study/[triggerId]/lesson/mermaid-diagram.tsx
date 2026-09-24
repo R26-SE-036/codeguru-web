@@ -2,6 +2,9 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 
+import { parseFlowchart, rolesFor, stripFences, type FlowRole } from '@/lib/flowchart';
+import { THEME_CHANGE_EVENT } from '@/lib/theme-preference';
+
 /**
  * A Mermaid diagram, rendered client-side.
  *
@@ -47,11 +50,9 @@ export function quoteNodeLabels(chart: string): string {
     `"${label.trim().replace(/"/g, '#quot;')}"`;
 
   return (
-    chart
-      // A fenced block occasionally survives the model's JSON, and mermaid
-      // will not parse the fence.
-      .replace(/^\s*```(?:mermaid)?\s*/i, '')
-      .replace(/\s*```\s*$/i, '')
+    // A fenced block occasionally survives the model's JSON, and mermaid
+    // will not parse the fence.
+    stripFences(chart)
       // `id[label]` and `id{label}`. The identifier prefix is what keeps this
       // off edge labels (|like this|), which have no id before them.
       .replace(/([A-Za-z0-9_]+)\[([^\[\]"]+)\]/g, (match, id, label) =>
@@ -63,12 +64,73 @@ export function quoteNodeLabels(chart: string): string {
   );
 }
 
+/**
+ * A `--cg-rgb-*` triplet ("79 70 229") as #rrggbb.
+ *
+ * Mermaid's colour parser does not read the space-separated `rgb(79 70 229)`
+ * form. Handing it that made every themeVariable invalid, and Mermaid quietly
+ * fell back to its own lilac-and-purple default - which is what students saw.
+ */
+function readHex(name: string, fallback: string): string {
+  const parts = getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim()
+    .split(/\s+/)
+    .map(Number);
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return fallback;
+  return `#${parts.map((n) => Math.round(n).toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** Fill, border and text per role - the same story colours as the step flow. */
+function roleClassDefs(): Record<FlowRole, string> {
+  const ink = readHex('--cg-rgb-ink', '#0b1220');
+  const style = (fill: string, stroke: string) =>
+    `fill:${fill},stroke:${stroke},stroke-width:2px,color:${ink}`;
+  const accent = readHex('--cg-rgb-accent', '#4f46e5');
+  const accentSoft = readHex('--cg-rgb-accent-soft', '#eef0ff');
+  return {
+    start: style(accentSoft, accent),
+    end: style(accentSoft, accent),
+    step: style(readHex('--cg-rgb-card', '#ffffff'), readHex('--cg-rgb-hue-study', '#8b5cf6')),
+    decision: style(readHex('--cg-rgb-warn-soft', '#fef3c7'), readHex('--cg-rgb-warn', '#b45309')),
+    problem: style(readHex('--cg-rgb-danger-soft', '#fee2e2'), readHex('--cg-rgb-danger', '#be2020')),
+    fix: style(readHex('--cg-rgb-ok-soft', '#dcfce7'), readHex('--cg-rgb-ok', '#15803d')),
+  };
+}
+
+/** The chart with each node classed by role, when it can be read. */
+function withRoleClasses(chart: string): string {
+  const graph = parseFlowchart(chart);
+  if (!graph) return chart;
+
+  const defs = roleClassDefs();
+  const byRole = new Map<FlowRole, string[]>();
+  for (const [id, role] of rolesFor(graph)) {
+    byRole.set(role, [...(byRole.get(role) ?? []), id]);
+  }
+
+  // Heavier arrows: the default hairline all but vanished at lesson size.
+  const lines = [chart, 'linkStyle default stroke-width:2px'];
+  for (const [role, ids] of byRole) {
+    lines.push(`classDef cg${role} ${defs[role]}`, `class ${ids.join(',')} cg${role}`);
+  }
+  return lines.join('\n');
+}
+
 export default function MermaidDiagram({ chart }: { chart: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
+  // Bumped when the student switches theme, so the colours are read again.
+  const [themeRevision, setThemeRevision] = useState(0);
   // Mermaid needs a DOM id unique per diagram; useId gives a stable one that
   // matches between renders.
   const id = useId().replace(/:/g, '');
+
+  useEffect(() => {
+    const refresh = () => setThemeRevision((n) => n + 1);
+    window.addEventListener(THEME_CHANGE_EVENT, refresh);
+    return () => window.removeEventListener(THEME_CHANGE_EVENT, refresh);
+  }, []);
 
   useEffect(() => {
     let live = true;
@@ -77,31 +139,48 @@ export default function MermaidDiagram({ chart }: { chart: string }) {
       try {
         const mermaid = (await import('mermaid')).default;
 
-        const readToken = (name: string, fallback: string) => {
-          const value = getComputedStyle(document.documentElement)
-            .getPropertyValue(name)
-            .trim();
-          return value ? `rgb(${value})` : fallback;
-        };
-
+        const accent = readHex('--cg-rgb-accent', '#4f46e5');
+        const card = readHex('--cg-rgb-card', '#ffffff');
         mermaid.initialize({
           startOnLoad: false,
           securityLevel: 'strict',
           theme: 'base',
           themeVariables: {
-            background: readToken('--cg-rgb-card', '#ffffff'),
-            primaryColor: readToken('--cg-rgb-accent-soft', '#e0e7ff'),
-            primaryBorderColor: readToken('--cg-rgb-accent', '#2563eb'),
-            primaryTextColor: readToken('--cg-rgb-ink', '#0f1b33'),
-            lineColor: readToken('--cg-rgb-border-strong', '#94a3b8'),
-            fontFamily: getComputedStyle(document.documentElement)
-              .getPropertyValue('--cg-font')
-              .trim() || 'system-ui, sans-serif',
+            background: card,
+            primaryColor: readHex('--cg-rgb-accent-soft', '#eef0ff'),
+            primaryBorderColor: accent,
+            primaryTextColor: readHex('--cg-rgb-ink', '#0b1220'),
+            // The arrows carry the flow, so they get the accent rather than a
+            // border grey that disappeared against the card.
+            lineColor: accent,
+            edgeLabelBackground: card,
+            tertiaryColor: readHex('--cg-rgb-card-alt', '#f8fafd'),
+            fontSize: '15px',
+            fontFamily:
+              getComputedStyle(document.documentElement).getPropertyValue('--cg-font').trim() ||
+              'system-ui, sans-serif',
+          },
+          flowchart: {
+            curve: 'basis',
+            padding: 14,
+            nodeSpacing: 40,
+            rankSpacing: 46,
           },
         });
 
-        const { svg } = await mermaid.render(`mermaid-${id}`, quoteNodeLabels(chart));
-        if (live && containerRef.current) containerRef.current.innerHTML = svg;
+        const source = withRoleClasses(quoteNodeLabels(chart));
+        const { svg } = await mermaid.render(`mermaid-${id}-${themeRevision}`, source);
+        if (!live || !containerRef.current) return;
+        containerRef.current.innerHTML = svg;
+
+        // Rounded boxes, like every other card in the app. Mermaid has no
+        // theme variable for it.
+        containerRef.current
+          .querySelectorAll('.node rect')
+          .forEach((rect) => {
+            rect.setAttribute('rx', '10');
+            rect.setAttribute('ry', '10');
+          });
       } catch (error) {
         // A malformed diagram is a content problem, not a page problem. The
         // lesson around it is still worth reading, so fail to a note rather
@@ -116,7 +195,7 @@ export default function MermaidDiagram({ chart }: { chart: string }) {
     return () => {
       live = false;
     };
-  }, [chart, id]);
+  }, [chart, id, themeRevision]);
 
   if (failed) {
     return (
@@ -130,8 +209,8 @@ export default function MermaidDiagram({ chart }: { chart: string }) {
     <div
       ref={containerRef}
       // Diagrams are frequently wider than the column; scroll the diagram
-      // rather than the page.
-      className="overflow-x-auto rounded-cg border border-line bg-card p-4"
+      // rather than the page. Centred, so a narrow chart does not hug the left.
+      className="flex justify-center overflow-x-auto rounded-cg border border-line bg-card p-4 [&_svg]:h-auto"
     />
   );
 }
