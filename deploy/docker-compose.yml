@@ -165,6 +165,10 @@ services:
     environment:
       CODE_COACH_URL: http://code-coach:8080
       ML_SERVICE_URL: http://pairpath-ml:8000
+      # Writes the review after a session. Needs INTERNAL_SERVICE_KEY, the
+      # same value in both services' env files; without it every review is
+      # the exercise's fixed questions.
+      STUDY_GUIDER_URL: http://study-guider:8010
       # ============ WHY THIS STACK IS NOT "production" ============
       # The image sets NODE_ENV=production; this overrides it, deliberately.
       #
