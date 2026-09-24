@@ -72,6 +72,11 @@ interface Question {
 
 interface SubmitResult {
   score: number;
+  /**
+   * The wrong attempts the engine graded through /game/check. Forwarded to
+   * Code Coach as `error_count`; absent from an engine older than this field.
+   */
+  errorCount?: number;
   learnerFeedback?: string;
   explanation?: string;
   /**
@@ -688,7 +693,13 @@ export function GamePlayer({
             // Required by the contract. Dropping it makes Code Coach answer
             // 422, and because this call is best-effort the failure is only a
             // console warning - so mastery silently never updates from games.
-            error_count: submitted.score > 0 ? 0 : 1,
+            //
+            // The engine's measured count, not one derived from the score:
+            // `score > 0 ? 0 : 1` meant Code Coach's mastery error penalty only
+            // ever saw 0 or 1. The derived value stays as the fallback for an
+            // engine that does not return the count. Capped at 100 because
+            // Code Coach rejects anything higher, and checks are unlimited.
+            error_count: Math.min(100, submitted.errorCount ?? (submitted.score > 0 ? 0 : 1)),
             attempt_count: state.attemptCount,
             hint_usage: state.hintLevel,
             time_taken_seconds: state.seconds,
