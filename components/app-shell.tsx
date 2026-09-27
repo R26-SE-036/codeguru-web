@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Download, LogOut, Menu, X } from 'lucide-react';
+import { Download, FolderDown, LogOut, Menu, X } from 'lucide-react';
 import clsx from 'clsx';
 
 import { SECTIONS, activeSection } from '@/lib/nav';
@@ -145,7 +145,10 @@ export function AppShell({
         </nav>
 
         <div className="mt-4 space-y-3 border-t border-line pt-4">
-          <ExtensionLink />
+          <div className="space-y-0.5">
+            <ExtensionLink />
+            <SampleJavaLink />
+          </div>
           <Link
             href="/account"
             title="Your account"
@@ -248,7 +251,10 @@ export function AppShell({
             </nav>
 
             <div className="space-y-3 border-t border-line pt-4">
-              <ExtensionLink />
+              <div className="space-y-0.5">
+                <ExtensionLink />
+                <SampleJavaLink />
+              </div>
               <Link
                 href="/account"
                 className="cg-focusable flex items-center gap-3 rounded-cg-sm py-1 transition hover:bg-card-alt"
@@ -345,6 +351,22 @@ function ExtensionLink() {
     >
       <Download size={15} strokeWidth={2.2} aria-hidden />
       Get the VS Code extension
+    </a>
+  );
+}
+
+/**
+ * TEMPORARY, for user testing: the sample Java files, as a zip. See
+ * lib/sample-java.ts for everything to remove afterwards.
+ */
+function SampleJavaLink() {
+  return (
+    <a
+      href="/download/sample-java"
+      className="cg-focusable flex items-center gap-2 rounded-cg-sm px-2 py-1.5 text-sm font-medium text-muted transition hover:bg-card-alt hover:text-ink"
+    >
+      <FolderDown size={15} strokeWidth={2.2} aria-hidden />
+      Sample Java files
     </a>
   );
 }
