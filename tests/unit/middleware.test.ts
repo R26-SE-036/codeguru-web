@@ -56,7 +56,7 @@ describe('with a session', () => {
 
   // Opened from links in emails, often in a browser that is already signed
   // in; redirecting it away would throw the link's token away with it.
-  it.each(['/forgot-password', '/reset-password', '/confirm-email', '/download/vscode-extension'])(
+  it.each(['/forgot-password', '/reset-password', '/confirm-email', '/download/vscode-extension', '/download/sample-java'])(
     'opens %s signed in or signed out, without redirecting',
     async (path) => {
       for (const session of [undefined, makeSession()]) {

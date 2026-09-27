@@ -46,7 +46,14 @@ function isPublic(pathname: string): boolean {
  * a recovery address usually is. Sending a signed-in browser to the home page,
  * as the sign-in pages do, would throw the link away.
  */
-const OPEN_PATHS = ['/forgot-password', '/reset-password', '/confirm-email', '/download/vscode-extension'];
+const OPEN_PATHS = [
+  '/forgot-password',
+  '/reset-password',
+  '/confirm-email',
+  '/download/vscode-extension',
+  // TEMPORARY, for user testing: see lib/sample-java.ts.
+  '/download/sample-java',
+];
 
 function isOpen(pathname: string): boolean {
   return OPEN_PATHS.includes(pathname);
