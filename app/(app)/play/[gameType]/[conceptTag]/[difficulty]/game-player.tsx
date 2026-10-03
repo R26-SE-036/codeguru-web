@@ -7,20 +7,25 @@ import {
   ArrowLeft,
   ArrowRight,
   BookOpen,
+  CalendarCheck,
   CircleCheck,
+  Flame,
   Gamepad2,
   GripVertical,
   Info,
   Lightbulb,
   Loader2,
+  Sparkles,
   Timer,
   TriangleAlert,
 } from 'lucide-react';
 
 import { ApiError, api } from '@/lib/api';
+import { RESULT_KEY, type RoundRewards } from '@/lib/arcade';
 import { describeDifficultySource, formatConcept, formatGameType } from '@/lib/vocabulary';
 import { FormError } from '@/components/field';
 import { Badge, Card, buttonClass } from '@/components/ui';
+import { AchievementTile } from '@/components/arcade';
 
 /**
  * The game machine, the drag-and-drop and the three interactions are the
@@ -89,6 +94,12 @@ interface SubmitResult {
     detail: string;
   } | null;
   nextRecommendedConcept?: string | null;
+  /**
+   * What the round earned - XP, level, streak, achievements, quests. Worked
+   * out by the engine from the round it just graded; null if that write
+   * failed, in which case the score still stands.
+   */
+  rewards?: RoundRewards | null;
 }
 
 type Answer = number | number[] | string | null;
@@ -134,6 +145,8 @@ interface RunEntry {
   seconds: number;
   hintLevel: number;
   attemptCount: number;
+  /** What it earned, for the celebration on the results page. */
+  rewards?: RoundRewards | null;
 }
 
 /**
@@ -289,7 +302,14 @@ export function GamePlayer({
   gameType,
   conceptTag,
   difficulty,
+  mode = 'practice',
 }: {
+  /**
+   * `daily` plays today's challenge: one question, fetched from /daily rather
+   * than chosen by the adaptive engine, and submitted as the counted attempt.
+   * The engine decides whether it really is the first try - this only asks.
+   */
+  mode?: 'practice' | 'daily';
   /**
    * The real Code Coach user id, passed down from the server component.
    *
@@ -398,6 +418,22 @@ export function GamePlayer({
     (typeof state.answer !== 'string' || state.answer.trim().length > 0);
   const activeDifficulty = state.question?.difficulty ?? difficulty;
 
+  /** The concept actually played - the daily challenge's comes with its question. */
+  const activeConcept = state.question?.conceptTag ?? conceptTag;
+
+  /** A daily challenge is one question; a practice set is a run. */
+  const isDaily = mode === 'daily';
+  const runLength = isDaily ? 1 : QUESTIONS_PER_RUN;
+
+  /** The next question: today's challenge, or a fresh adaptive round. */
+  const loadQuestion = useCallback(async (): Promise<Question> => {
+    if (mode === 'daily') {
+      const daily = await api.get<{ question: Question }>('play', '/daily');
+      return daily.question;
+    }
+    return api.get<Question>('play', `/game/${userId}/${gameType}/${conceptTag}/${difficulty}`);
+  }, [mode, userId, gameType, conceptTag, difficulty]);
+
   useEffect(() => {
     let live = true;
 
@@ -418,10 +454,7 @@ export function GamePlayer({
         if (!live) return;
         learningSessionId.current = session?.learning_session_id ?? null;
 
-        const question = await api.get<Question>(
-          'play',
-          `/game/${userId}/${gameType}/${conceptTag}/${difficulty}`,
-        );
+        const question = await loadQuestion();
         if (!live) return;
 
         dispatch({ type: 'INIT', question });
@@ -440,7 +473,7 @@ export function GamePlayer({
     return () => {
       live = false;
     };
-  }, [userId, gameType, conceptTag, difficulty]);
+  }, [loadQuestion]);
 
   useEffect(() => {
     if (state.phase !== 'playing') return;
@@ -467,10 +500,7 @@ export function GamePlayer({
     dispatch({ type: 'LOADING' });
 
     try {
-      const question = await api.get<Question>(
-        'play',
-        `/game/${userId}/${gameType}/${conceptTag}/${difficulty}`,
-      );
+      const question = await loadQuestion();
       dispatch({ type: 'INIT', question });
     } catch (error) {
       dispatch({
@@ -483,7 +513,7 @@ export function GamePlayer({
     } finally {
       setLoadingNext(false);
     }
-  }, [userId, gameType, conceptTag, difficulty]);
+  }, [loadQuestion]);
 
   /**
    * End the run and show the summary.
@@ -495,10 +525,11 @@ export function GamePlayer({
   const finishRun = useCallback(
     (entries: RunEntry[], last: SubmitResult) => {
       sessionStorage.setItem(
-        'codeguru.lastGameResult',
+        RESULT_KEY,
         JSON.stringify({
           result: last,
-          conceptTag,
+          conceptTag: activeConcept,
+          mode,
           gameType: entries[entries.length - 1]?.gameType ?? activeGameType,
           difficulty: entries[entries.length - 1]?.difficulty ?? activeDifficulty,
           attemptCount: entries[entries.length - 1]?.attemptCount ?? 1,
@@ -513,7 +544,7 @@ export function GamePlayer({
 
       router.push('/play/results');
     },
-    [conceptTag, activeGameType, activeDifficulty, router],
+    [activeConcept, mode, activeGameType, activeDifficulty, router],
   );
 
   const onDrop = useCallback(() => {
@@ -661,9 +692,12 @@ export function GamePlayer({
         userId,
         learningSessionId: learningSessionId.current,
         gameType: activeGameType,
-        conceptTag,
+        conceptTag: activeConcept,
         questionId: state.question.id,
         selectedAnswer: state.answer,
+        // A request, not a claim: the engine only counts it as the daily
+        // attempt if this is today's question and the first try at it.
+        mode,
         hintUsage: state.hintLevel,
         timeTakenSeconds: state.seconds,
         attemptCount: state.attemptCount,
@@ -685,7 +719,7 @@ export function GamePlayer({
         api
           .post('coach', '/gamification/me/session-results', {
             learningSessionId: learningSessionId.current,
-            concept_tag: conceptTag,
+            concept_tag: activeConcept,
             game_id: state.question.id,
             game_type: activeGameType,
             difficulty_level: activeDifficulty,
@@ -720,6 +754,7 @@ export function GamePlayer({
           seconds: state.seconds,
           hintLevel: state.hintLevel,
           attemptCount: state.attemptCount,
+          rewards: submitted.rewards ?? null,
         },
       ];
       setRun(entries);
@@ -732,8 +767,11 @@ export function GamePlayer({
       // half second window to read feedback before being navigated away from
       // it, which is not long enough for the one round in the run where the
       // feedback actually matters.
-      if (entries.length >= QUESTIONS_PER_RUN) {
-        setTimeout(() => finishRun(entries, submitted), 2000);
+      // A little longer when something was unlocked, so the badge on screen
+      // can be seen before the page moves on.
+      if (entries.length >= runLength) {
+        const unlocked = (submitted.rewards?.achievements?.length ?? 0) > 0;
+        setTimeout(() => finishRun(entries, submitted), unlocked ? 3200 : 2000);
       }
     } catch {
       dispatch({ type: 'ERROR', message: 'We could not save this attempt. Please try again.' });
@@ -781,34 +819,45 @@ export function GamePlayer({
     <div className="mx-auto max-w-3xl space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-cg bg-hue-play/10 text-hue-play">
-            <Gamepad2 size={19} strokeWidth={2.1} aria-hidden />
+          <span
+            className={`grid h-10 w-10 shrink-0 place-items-center rounded-cg ${
+              isDaily ? 'bg-gradient-to-br from-hue-play to-hue-rose text-white' : 'bg-hue-play/10 text-hue-play'
+            }`}
+          >
+            {isDaily ? (
+              <CalendarCheck size={19} strokeWidth={2.2} aria-hidden />
+            ) : (
+              <Gamepad2 size={19} strokeWidth={2.1} aria-hidden />
+            )}
           </span>
           <div>
-            <h1 className="font-bold text-ink">{formatGameType(activeGameType)}</h1>
-            <p className="text-sm text-muted">
-              {formatConcept(conceptTag)}
-              {chosenBy ? ` — ${chosenBy}` : ''}
+            <h1 className="font-bold text-ink">
+              {isDaily ? 'Daily challenge · ' : ''}
+              {formatGameType(activeGameType)}
+            </h1>
+            <p className="text-sm capitalize text-muted">
+              {formatConcept(activeConcept)}
+              {!isDaily && chosenBy ? ` — ${chosenBy}` : ''}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Where they are in the run. Shown from the start rather than only
-              once a round is done, because "question 1 of 5" is what tells a
-              student this is a set and not a single question they can leave. */}
-          <Badge tone="neutral">
-            {/* While a finished round is still on screen the student is looking
-                at question N, not N+1 - the run has been appended to but they
-                have not moved on yet. Counting ahead here labelled the code
-                they were still reading with the next question's number. */}
-            Question{' '}
-            {Math.min(
-              state.phase === 'submitted' ? run.length : run.length + 1,
-              QUESTIONS_PER_RUN,
-            )}{' '}
-            of {QUESTIONS_PER_RUN}
-          </Badge>
+          {isDaily ? (
+            <Badge tone="warn">Double XP on your first try</Badge>
+          ) : (
+            /* Where they are in the run. Shown from the start rather than
+               only once a round is done, because "question 1 of 5" is what
+               tells a student this is a set and not a single question. */
+            <Badge tone="neutral">
+              {/* While a finished round is still on screen the student is
+                  looking at question N, not N+1 - the run has been appended
+                  to but they have not moved on yet. */}
+              Question{' '}
+              {Math.min(state.phase === 'submitted' ? run.length : run.length + 1, runLength)} of{' '}
+              {runLength}
+            </Badge>
+          )}
           <Badge tone="neutral">{activeDifficulty}</Badge>
           {/* tabular-nums so a ticking clock does not jitter the layout every
               time the digit width changes. */}
@@ -1169,6 +1218,11 @@ export function GamePlayer({
                 {result.learnerFeedback ?? result.explanation}
               </p>
             )}
+
+            {/* What the round earned, the moment it is earned. The full
+                breakdown waits for the results page; here it is the number,
+                the streak and anything just unlocked. */}
+            {result.rewards && <RoundRewardsStrip rewards={result.rewards} />}
             {/* Support, when there is something to act on. `keep_going` is
                 deliberately not shown - telling a student who is doing fine
                 that they are doing fine is noise, and it would train them to
@@ -1197,7 +1251,7 @@ export function GamePlayer({
               </div>
             )}
 
-            {run.length >= QUESTIONS_PER_RUN ? (
+            {run.length >= runLength ? (
               <p className="mt-3 flex items-center gap-1.5 text-sm text-muted">
                 <Loader2 size={13} className="animate-spin" aria-hidden />
                 Taking you to your results…
@@ -1236,12 +1290,53 @@ export function GamePlayer({
                 </button>
 
                 <span className="text-sm text-muted">
-                  {QUESTIONS_PER_RUN - run.length} left in this set
+                  {runLength - run.length} left in this set
                 </span>
               </div>
             )}
           </div>
         </Card>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The round's reward, inline under its result: XP earned, the streak, a
+ * level-up, and a tile for each achievement just unlocked.
+ */
+function RoundRewardsStrip({ rewards }: { rewards: RoundRewards }) {
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="cg-float-up inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-hue-play to-hue-rose px-3.5 py-1.5 text-sm font-extrabold text-white shadow-cg-md">
+          <Sparkles size={14} aria-hidden />+{rewards.xp.total} XP
+        </span>
+        {rewards.daily?.counted && <Badge tone="warn">Daily challenge counted</Badge>}
+        {rewards.streak.extended && (
+          <Badge tone="danger">
+            <Flame size={12} aria-hidden />
+            {rewards.streak.current}-day streak
+          </Badge>
+        )}
+        {rewards.level.leveledUp && (
+          <Badge tone="ok">
+            Level {rewards.level.level} · {rewards.level.title}
+          </Badge>
+        )}
+        {rewards.questsCompleted.map((quest) => (
+          <Badge key={quest.id} tone="accent">
+            Quest done: {quest.title} (+{quest.xp})
+          </Badge>
+        ))}
+      </div>
+
+      {rewards.achievements.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {rewards.achievements.map((achievement, index) => (
+            <AchievementTile key={achievement.id} achievement={achievement} pop delay={index * 120} />
+          ))}
+        </div>
       )}
     </div>
   );
