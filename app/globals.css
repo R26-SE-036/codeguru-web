@@ -186,3 +186,129 @@
 .cg-editor-pointable .monaco-editor .margin-view-overlays .line-numbers {
   cursor: pointer;
 }
+
+/* ── Scroll reveal ─────────────────────────────────────────────────────────
+   Driven by <Reveal> in components/motion.tsx, which flips data-reveal the
+   first time the element scrolls into view. Outside @layer for the same reason
+   as the Monaco classes above: the hidden state is only ever set at runtime.
+
+   Everything drawn inside a Reveal - bars, ring arcs, the editor squiggle -
+   waits for it, so a chart animates when its card arrives. Reduced motion is
+   handled at the base layer, which collapses every transition here to
+   nothing; the end state is the normal state, so nothing is lost. */
+.cg-reveal {
+  transition:
+    opacity 0.6s var(--cg-ease) var(--cg-reveal-delay, 0ms),
+    transform 0.6s var(--cg-ease) var(--cg-reveal-delay, 0ms);
+}
+
+.cg-reveal[data-reveal='hidden'] {
+  opacity: 0;
+  transform: translateY(16px);
+}
+
+/* A bar grows from the left. clip-path rather than width or scaleX: width
+   would reflow the row on every frame, and scaleX squashes the rounded ends. */
+.cg-fill {
+  clip-path: inset(0 0 0 0);
+  transition: clip-path 0.9s var(--cg-ease)
+    calc(var(--cg-reveal-delay, 0ms) + var(--cg-fill-delay, 150ms));
+}
+
+.cg-reveal[data-reveal='hidden'] .cg-fill {
+  clip-path: inset(0 100% 0 0);
+}
+
+/* A ring arc draws itself. Arcs use pathLength="100", so --cg-seg is the
+   arc's share in percent. */
+.cg-ring-seg {
+  stroke-dasharray: var(--cg-seg) 100;
+  transition: stroke-dasharray 1s var(--cg-ease)
+    calc(var(--cg-reveal-delay, 0ms) + var(--cg-seg-delay, 200ms));
+}
+
+.cg-reveal[data-reveal='hidden'] .cg-ring-seg {
+  stroke-dasharray: 0 100;
+}
+
+/* The squiggle the editor draws under a mistake, for the illustration on
+   Insights. It fades in after its card, as it would after a pause in typing. */
+.cg-squiggle {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: rgb(var(--cg-rgb-danger));
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 4px;
+  transition: text-decoration-color 0.5s var(--cg-ease)
+    calc(var(--cg-reveal-delay, 0ms) + 700ms);
+}
+
+.cg-reveal[data-reveal='hidden'] .cg-squiggle {
+  text-decoration-color: transparent;
+}
+
+/* ── Practice celebrations ───────────────────────────────────────────────────
+   Three one-shot effects for the moments worth marking: a level-up or a pass
+   (confetti), an achievement arriving (pop), and XP being earned (float). Each
+   plays once and ends at rest; none loops. Under reduced motion the base layer
+   collapses them, and the confetti's end state is invisible, so it simply does
+   not appear. */
+@keyframes cg-confetti {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--cg-dx, 0px), var(--cg-dy, 220px)) rotate(var(--cg-spin, 540deg));
+  }
+}
+
+.cg-confetti-piece {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 8px;
+  height: 12px;
+  border-radius: 2px;
+  opacity: 0;
+  animation: cg-confetti 1.6s cubic-bezier(0.2, 0.7, 0.3, 1) var(--cg-delay, 0ms) 1 both;
+}
+
+@keyframes cg-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.cg-pop {
+  animation: cg-pop 0.55s var(--cg-ease) var(--cg-delay, 0ms) 1 both;
+}
+
+@keyframes cg-float-up {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.9);
+  }
+  20% {
+    opacity: 1;
+    transform: translateY(0) scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.cg-float-up {
+  animation: cg-float-up 0.7s var(--cg-ease) 1 both;
+}

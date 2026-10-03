@@ -117,6 +117,37 @@ export function formatErrorType(value: string | undefined | null): string {
 }
 
 /**
+ * A timeline summary as a student should read it.
+ *
+ * Code Coach writes these sentences itself, with the raw identifiers in
+ * them: "OFF_BY_ONE in loop_boundaries." The sentence is fine; the constants
+ * are not. Error types become a phrase and concept tags lose their
+ * underscores. Only identifiers are touched - an UPPER_SNAKE or lower_snake
+ * word with at least one underscore - so ordinary words pass through as sent.
+ */
+export function humaniseSummary(value: string | undefined | null): string {
+  const text = (value ?? '')
+    .replace(/\b(?:BugHunt|DragDrop|CodeTrace|CodeFix)\b/g, (match) => formatGameType(match))
+    .replace(/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g, (match) => formatErrorType(match).toLowerCase())
+    .replace(/\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g, (match) => formatConcept(match));
+  // The identifier usually opens the sentence, so it has just lost its capital.
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** Seconds as the largest unit that fits: "40 sec", "12 min", "5 hours", "3 days". */
+export function formatDuration(seconds: number | undefined | null): string {
+  if (seconds === undefined || seconds === null || !Number.isFinite(seconds)) return '';
+  const s = Math.max(0, seconds);
+  if (s < 60) return `${Math.round(s)} sec`;
+  const minutes = Math.round(s / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+  const days = Math.round(hours / 24);
+  return `${days} ${days === 1 ? 'day' : 'days'}`;
+}
+
+/**
  * How the difficulty was arrived at, as reported by the game endpoint.
  *
  * This is not decoration. `heuristic` means the ML service did not answer and

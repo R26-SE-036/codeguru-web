@@ -21,14 +21,21 @@ import {
 } from 'recharts';
 import {
   ArrowLeft,
+  ArrowRight,
   Brain,
+  CheckCircle2,
   ChevronDown,
+  CircleDashed,
   Clock3,
   Layers,
+  Lock,
+  PlayCircle,
+  Repeat2,
   Target,
   TrendingUp,
   Trophy,
   TriangleAlert,
+  type LucideIcon,
 } from 'lucide-react';
 
 import { ApiError, api } from '@/lib/api';
@@ -44,6 +51,8 @@ import {
   Stat,
   buttonClass,
 } from '@/components/ui';
+import { CountUp, Reveal } from '@/components/motion';
+import { FillBar, LegendItem, Ring } from '@/components/charts';
 
 /**
  * The progress dashboard.
@@ -67,12 +76,50 @@ const PASS_MARK_PERCENT = 70;
 //
 // "locked" is descriptive, not a restriction - nothing stops a student opening
 // it. It answers "why is this not the thing to do next".
-const CONCEPT_STATE = {
-  mastered: { label: 'Mastered', tone: 'ok' as const, bar: 'bg-ok', card: 'ring-1 ring-ok/25' },
-  in_progress: { label: 'In progress', tone: 'warn' as const, bar: 'bg-warn', card: '' },
-  ready: { label: 'Ready', tone: 'accent' as const, bar: 'bg-accent', card: '' },
-  locked: { label: 'Locked', tone: 'neutral' as const, bar: 'bg-faint-nontext', card: 'opacity-70' },
-} as const;
+const CONCEPT_STATE: Record<
+  CurriculumConcept['state'],
+  {
+    label: string;
+    tone: 'ok' | 'warn' | 'accent' | 'neutral';
+    bar: string;
+    card: string;
+    icon: LucideIcon;
+    iconTone: string;
+  }
+> = {
+  mastered: {
+    label: 'Mastered',
+    tone: 'ok',
+    bar: 'bg-ok',
+    card: 'ring-1 ring-ok/25',
+    icon: CheckCircle2,
+    iconTone: 'bg-ok/10 text-ok',
+  },
+  in_progress: {
+    label: 'In progress',
+    tone: 'warn',
+    bar: 'bg-warn',
+    card: '',
+    icon: CircleDashed,
+    iconTone: 'bg-warn/10 text-warn',
+  },
+  ready: {
+    label: 'Ready',
+    tone: 'accent',
+    bar: 'bg-accent',
+    card: '',
+    icon: PlayCircle,
+    iconTone: 'bg-accent/10 text-accent',
+  },
+  locked: {
+    label: 'Locked',
+    tone: 'neutral',
+    bar: 'bg-faint-nontext',
+    card: 'opacity-70',
+    icon: Lock,
+    iconTone: 'bg-card-alt text-muted',
+  },
+};
 
 // Module-level constant, not an inline literal: a fresh object each render is a
 // new dependency each render, and useThemeColors' effect would never settle.
@@ -317,63 +364,69 @@ export function ProgressView() {
   const hasHistory = (attempts?.length ?? 0) > 0;
 
   return (
-    <div className="space-y-8">
-      <PageHeader
-        eyebrow="Study"
-        title="Your progress"
-        lead="Every quiz you have taken, what the knowledge-tracing model believes you know, and how that has changed."
-        icon={TrendingUp}
-        tone="text-hue-study"
-        toneBg="bg-hue-study/10"
-        actions={
-          <Link href="/study" className={buttonClass({ variant: 'secondary' })}>
-            <ArrowLeft size={16} strokeWidth={2.2} aria-hidden />
-            Back to lessons
-          </Link>
-        }
-      />
+    <div className="space-y-10">
+      <Reveal>
+        <PageHeader
+          eyebrow="Study"
+          title="Your progress"
+          lead="Every quiz you have taken, what the knowledge-tracing model believes you know, and how that has changed."
+          icon={TrendingUp}
+          tone="text-hue-study"
+          toneBg="bg-hue-study/10"
+          actions={
+            <Link href="/study" className={buttonClass({ variant: 'secondary' })}>
+              <ArrowLeft size={16} strokeWidth={2.2} aria-hidden />
+              Back to lessons
+            </Link>
+          }
+        />
+      </Reveal>
 
       {/* ── Headline numbers ──────────────────────────────────────────────
           Outside the hasHistory gate, and counted against the whole course.
           "Concepts attempted 1" says nothing on its own; "1 of 14" is a
           position in a syllabus, which is the question being asked. */}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat
-          label="Concepts attempted"
-          value={radarData.length}
-          hint={totalConcepts ? `of ${totalConcepts} in the course` : undefined}
-          icon={Layers}
-          tone="text-hue-study"
-          toneBg="bg-hue-study/10"
-        />
-        <Stat
-          label="Mastered"
-          value={masteredCount}
-          hint={
-            totalConcepts
+        {[
+          {
+            label: 'Concepts attempted',
+            value: <CountUp value={radarData.length} />,
+            hint: totalConcepts ? `of ${totalConcepts} in the course` : undefined,
+            icon: Layers,
+            tone: 'text-hue-study',
+            toneBg: 'bg-hue-study/10',
+          },
+          {
+            label: 'Mastered',
+            value: <CountUp value={masteredCount} />,
+            hint: totalConcepts
               ? `of ${totalConcepts} · knowledge tracing`
-              : `of ${radarData.length} · knowledge tracing`
-          }
-          icon={Trophy}
-          tone="text-ok"
-          toneBg="bg-ok/10"
-        />
-        <Stat
-          label="Average best"
-          value={`${averageBest}%`}
-          hint={hasHistory ? 'Across attempted concepts' : 'Nothing attempted yet'}
-          icon={Target}
-          tone="text-accent"
-          toneBg="bg-accent/10"
-        />
-        <Stat
-          label="Time on lessons"
-          value={formatDuration(totalStudySeconds)}
-          hint={totalStudySeconds ? 'Reading before quizzes' : 'Not measured yet'}
-          icon={Clock3}
-          tone="text-hue-insight"
-          toneBg="bg-hue-insight/10"
-        />
+              : `of ${radarData.length} · knowledge tracing`,
+            icon: Trophy,
+            tone: 'text-ok',
+            toneBg: 'bg-ok/10',
+          },
+          {
+            label: 'Average best',
+            value: <CountUp value={averageBest} suffix="%" />,
+            hint: hasHistory ? 'Across attempted concepts' : 'Nothing attempted yet',
+            icon: Target,
+            tone: 'text-accent',
+            toneBg: 'bg-accent/10',
+          },
+          {
+            label: 'Time on lessons',
+            value: formatDuration(totalStudySeconds),
+            hint: totalStudySeconds ? 'Reading before quizzes' : 'Not measured yet',
+            icon: Clock3,
+            tone: 'text-hue-insight',
+            toneBg: 'bg-hue-insight/10',
+          },
+        ].map((stat, index) => (
+          <Reveal key={stat.label} delay={index * 70}>
+            <Stat {...stat} />
+          </Reveal>
+        ))}
       </section>
 
       {/* ── Due for review ──────────────────────────────────────────────
@@ -381,30 +434,50 @@ export function ProgressView() {
           this says which few to come back to today. */}
       {curriculum?.review_due && curriculum.review_due.length > 0 && (
         <section>
-          <SectionTitle hint={`${curriculum.review_due.length} concept${curriculum.review_due.length === 1 ? '' : 's'}`}>
-            Due for review
-          </SectionTitle>
-          <Card className="divide-y divide-line overflow-hidden">
-            {curriculum.review_due.map((item) => (
-              <div
-                key={item.concept}
-                className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5"
-              >
-                <div>
-                  <p className="font-medium text-ink">{formatConcept(item.concept)}</p>
-                  <p className="mt-0.5 text-xs text-muted">
-                    {reviewReason(item)}
-                  </p>
-                </div>
-                <Link
-                  href={`/study?concept=${encodeURIComponent(item.concept)}`}
-                  className={buttonClass({ variant: 'secondary', size: 'sm' })}
-                >
-                  Find its lesson
-                </Link>
-              </div>
-            ))}
-          </Card>
+          <Reveal>
+            <SectionTitle hint={`${curriculum.review_due.length} concept${curriculum.review_due.length === 1 ? '' : 's'}`}>
+              Due for review
+            </SectionTitle>
+          </Reveal>
+          <div className="grid gap-3 md:grid-cols-2">
+            {curriculum.review_due.map((item, index) => {
+              const known = Math.round(item.probability_known * 100);
+              const fading = item.reason === 'not_practised_recently';
+
+              return (
+                <Reveal key={item.concept} delay={(index % 2) * 70}>
+                  <Card className="flex h-full items-center gap-4 p-4">
+                    <span
+                      className={`grid h-10 w-10 shrink-0 place-items-center rounded-cg ${
+                        fading ? 'bg-hue-insight/10 text-hue-insight' : 'bg-warn/10 text-warn'
+                      }`}
+                    >
+                      {fading ? <Repeat2 size={18} aria-hidden /> : <Target size={18} aria-hidden />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold capitalize text-ink">{formatConcept(item.concept)}</p>
+                      <p className="mt-0.5 text-xs text-muted">{reviewReason(item)}</p>
+                      <div className="mt-2">
+                        <FillBar
+                          value={known}
+                          tone={fading ? 'bg-hue-insight' : 'bg-warn'}
+                          label={`${formatConcept(item.concept)}: ${known}% known`}
+                          height="h-1.5"
+                        />
+                      </div>
+                    </div>
+                    <Link
+                      href={`/study?concept=${encodeURIComponent(item.concept)}`}
+                      className={buttonClass({ variant: 'secondary', size: 'sm', className: 'shrink-0' })}
+                    >
+                      Review
+                      <ArrowRight size={14} aria-hidden />
+                    </Link>
+                  </Card>
+                </Reveal>
+              );
+            })}
+          </div>
         </section>
       )}
 
@@ -415,75 +488,143 @@ export function ProgressView() {
           that there are fourteen concepts and the student has met one. */}
       {curriculum && (
         <section>
-          <SectionTitle
-            hint={`${curriculum.counts.mastered} of ${curriculum.total} mastered`}
-          >
-            Your learning map
-          </SectionTitle>
+          <Reveal>
+            <SectionTitle
+              hint={`${curriculum.counts.mastered} of ${curriculum.total} mastered`}
+            >
+              Your learning map
+            </SectionTitle>
+          </Reveal>
 
-          {curriculum.suggested_next && (
-            <Card className="mb-4 flex flex-wrap items-center justify-between gap-3 border-l-4 border-l-hue-study p-4">
-              <p className="flex items-center gap-3 text-body">
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-cg bg-hue-study/10 text-hue-study">
-                  <Target size={17} strokeWidth={2.2} aria-hidden />
-                </span>
-                <span>
-                  <span className="font-semibold text-ink">Start here: </span>
-                  {formatConcept(curriculum.suggested_next)}
-                  <span className="text-muted"> — nothing it depends on is outstanding.</span>
-                </span>
-              </p>
+          {/* The map at a glance: the four states as one ring, beside the one
+              concept worth starting on. */}
+          <Reveal className="mb-4">
+            <Card className="grid items-center gap-6 p-5 sm:p-6 md:grid-cols-[auto_minmax(0,1fr)]">
+              <div className="flex flex-col items-center gap-4 sm:flex-row">
+                <Ring
+                  size={144}
+                  thickness={12}
+                  label={`${curriculum.counts.mastered} of ${curriculum.total} concepts mastered`}
+                  segments={[
+                    { value: curriculum.counts.mastered, tone: 'text-ok', label: 'Mastered' },
+                    { value: curriculum.counts.in_progress, tone: 'text-warn', label: 'In progress' },
+                    { value: curriculum.counts.ready, tone: 'text-accent', label: 'Ready' },
+                    { value: curriculum.counts.locked, tone: 'text-faint-nontext', label: 'Locked' },
+                  ]}
+                >
+                  <div>
+                    <div className="text-2xl font-extrabold tracking-tight text-ink">
+                      <CountUp value={curriculum.counts.mastered} />
+                      <span className="text-base font-semibold text-muted">/{curriculum.total}</span>
+                    </div>
+                    <div className="text-xs font-medium text-muted">mastered</div>
+                  </div>
+                </Ring>
+                <div className="grid gap-1.5">
+                  <LegendItem tone="bg-ok" label="Mastered" value={curriculum.counts.mastered} />
+                  <LegendItem tone="bg-warn" label="In progress" value={curriculum.counts.in_progress} />
+                  <LegendItem tone="bg-accent" label="Ready" value={curriculum.counts.ready} />
+                  <LegendItem tone="bg-faint-nontext" label="Locked" value={curriculum.counts.locked} />
+                </div>
+              </div>
+
+              {curriculum.suggested_next ? (
+                <div className="relative overflow-hidden rounded-cg-lg border border-hue-study/30 bg-hue-study/5 p-5">
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute -right-10 -top-12 h-32 w-32 rounded-full bg-hue-study/20 blur-2xl"
+                  />
+                  <p className="relative flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-hue-study">
+                    <Target size={14} strokeWidth={2.4} aria-hidden />
+                    Start here
+                  </p>
+                  <p className="relative mt-2 text-xl font-bold capitalize text-ink">
+                    {formatConcept(curriculum.suggested_next)}
+                  </p>
+                  <p className="relative mt-1 text-sm text-body">
+                    Nothing it depends on is outstanding, so it is the natural next step.
+                  </p>
+                  <Link
+                    href={`/study?concept=${encodeURIComponent(curriculum.suggested_next)}`}
+                    className={buttonClass({ size: 'sm', className: 'relative mt-4' })}
+                  >
+                    Find its lesson
+                    <ArrowRight size={14} aria-hidden />
+                  </Link>
+                </div>
+              ) : (
+                <p className="text-sm text-body">
+                  Each concept below shows how sure the model is that you know it. Locked ones
+                  are waiting on something they build on — open them any time, but they are not
+                  the place to start.
+                </p>
+              )}
             </Card>
-          )}
+          </Reveal>
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {curriculum.concepts.map((item) => {
+            {curriculum.concepts.map((item, index) => {
               const style = CONCEPT_STATE[item.state];
+              const StateIcon = style.icon;
               const known =
                 item.probability_known === null
                   ? null
                   : Math.round(item.probability_known * 100);
 
               return (
-                <Card key={item.concept} className={`p-4 ${style.card}`}>
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="font-semibold text-ink">
-                      {formatConcept(item.concept)}
-                    </span>
-                    <Badge tone={style.tone}>{style.label}</Badge>
-                  </div>
-
-                  {known === null ? (
-                    // Not "0%". An untouched concept and one failed twice are
-                    // different situations and must not look the same.
-                    <p className="mt-2 text-xs text-muted">Not attempted yet</p>
-                  ) : (
-                    <>
-                      <div className="mt-3">
-                        <Meter value={known} tone={style.bar} label={item.concept} />
-                      </div>
-                      <p className="mt-1.5 text-xs text-muted">
-                        <span className="font-semibold tabular-nums text-body">{known}%</span>{' '}
-                        known · {item.attempts} attempt{item.attempts === 1 ? '' : 's'}
-                      </p>
-                    </>
-                  )}
-
-                  {/* Not shown once mastered. The graph still lists an unmet
-                      prerequisite there - the student passed it out of order,
-                      which is allowed - but printing "Needs first" under a
-                      Mastered badge reads as outstanding work when there is
-                      none. On the other states it is the useful part: it says
-                      why this one is hard, or why it is not next. */}
-                  {item.state !== 'mastered' && item.unmet_prerequisites.length > 0 && (
-                    <p className="mt-2 text-xs text-muted">
-                      Needs first:{' '}
-                      <span className="text-body">
-                        {item.unmet_prerequisites.map(formatConcept).join(', ')}
+                <Reveal key={item.concept} delay={(index % 3) * 60}>
+                  <Card className={`h-full p-4 transition duration-200 ease-cg hover:-translate-y-0.5 hover:shadow-cg-md ${style.card}`}>
+                    {/* Icon and state on one row, the name on its own below:
+                        sharing a row with the badge truncated most names in
+                        three columns. */}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-cg-sm ${style.iconTone}`}>
+                        <StateIcon size={16} strokeWidth={2.2} aria-hidden />
                       </span>
+                      <Badge tone={style.tone}>{style.label}</Badge>
+                    </div>
+                    <p className="mt-3 font-semibold capitalize text-ink">
+                      {formatConcept(item.concept)}
                     </p>
-                  )}
-                </Card>
+
+                    {known === null ? (
+                      // Not "0%". An untouched concept and one failed twice are
+                      // different situations and must not look the same.
+                      <p className="mt-3 text-xs text-muted">Not attempted yet</p>
+                    ) : (
+                      <>
+                        <div className="mt-3">
+                          <FillBar
+                            value={known}
+                            tone={style.bar}
+                            label={`${formatConcept(item.concept)}: ${known}% known`}
+                            height="h-1.5"
+                            delay={(index % 3) * 60}
+                          />
+                        </div>
+                        <p className="mt-1.5 text-xs text-muted">
+                          <span className="font-semibold tabular-nums text-body">{known}%</span>{' '}
+                          known · {item.attempts} attempt{item.attempts === 1 ? '' : 's'}
+                        </p>
+                      </>
+                    )}
+
+                    {/* Not shown once mastered. The graph still lists an unmet
+                        prerequisite there - the student passed it out of order,
+                        which is allowed - but printing "Needs first" under a
+                        Mastered badge reads as outstanding work when there is
+                        none. On the other states it is the useful part: it says
+                        why this one is hard, or why it is not next. */}
+                    {item.state !== 'mastered' && item.unmet_prerequisites.length > 0 && (
+                      <p className="mt-2 text-xs text-muted">
+                        Needs first:{' '}
+                        <span className="text-body">
+                          {item.unmet_prerequisites.map(formatConcept).join(', ')}
+                        </span>
+                      </p>
+                    )}
+                  </Card>
+                </Reveal>
               );
             })}
           </div>
@@ -491,11 +632,13 @@ export function ProgressView() {
       )}
 
       {!hasHistory ? (
-        <EmptyState icon={TrendingUp} title="No quiz attempts yet">
-          {curriculum?.suggested_next
-            ? `Open the lesson for ${formatConcept(curriculum.suggested_next)} and take its quiz. The charts here fill in from your first attempt.`
-            : 'Work through a lesson and take its quiz, and your mastery will show up here.'}
-        </EmptyState>
+        <Reveal>
+          <EmptyState icon={TrendingUp} title="No quiz attempts yet">
+            {curriculum?.suggested_next
+              ? `Open the lesson for ${formatConcept(curriculum.suggested_next)} and take its quiz. The charts here fill in from your first attempt.`
+              : 'Work through a lesson and take its quiz, and your mastery will show up here.'}
+          </EmptyState>
+        </Reveal>
       ) : (
         <>
           {/* ── What the model believes ─────────────────────────────────── */}
@@ -505,63 +648,65 @@ export function ProgressView() {
               title="What the model believes you know"
               hint="Bayesian Knowledge Tracing"
             >
-              <Card className="divide-y divide-line overflow-hidden">
-                {mastery.map((item) => {
-                  const known = Math.round(item.probability_known * 100);
-                  const predicted = Math.round(item.predicted_correct * 100);
-                  const tone = item.mastered
-                    ? 'bg-ok'
-                    : known >= 50
-                      ? 'bg-warn'
-                      : 'bg-danger';
+              <Reveal>
+                <Card className="divide-y divide-line overflow-hidden">
+                  {mastery.map((item) => {
+                    const known = Math.round(item.probability_known * 100);
+                    const predicted = Math.round(item.predicted_correct * 100);
+                    const tone = item.mastered
+                      ? 'bg-ok'
+                      : known >= 50
+                        ? 'bg-warn'
+                        : 'bg-danger';
 
-                  return (
-                    <div key={item.concept} className="px-5 py-4">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <span className="font-medium text-ink">
-                          {formatConcept(item.concept)}
-                        </span>
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm tabular-nums text-muted">
-                            {item.attempts} attempt{item.attempts === 1 ? '' : 's'} ·{' '}
-                            {item.observations} questions
+                    return (
+                      <div key={item.concept} className="px-5 py-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <span className="font-medium capitalize text-ink">
+                            {formatConcept(item.concept)}
                           </span>
-                          <Badge tone={item.mastered ? 'ok' : known >= 50 ? 'warn' : 'danger'}>
-                            {known}% known
-                          </Badge>
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm tabular-nums text-muted">
+                              {item.attempts} attempt{item.attempts === 1 ? '' : 's'} ·{' '}
+                              {item.observations} questions
+                            </span>
+                            <Badge tone={item.mastered ? 'ok' : known >= 50 ? 'warn' : 'danger'}>
+                              {known}% known
+                            </Badge>
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="mt-2.5">
-                        <Meter
-                          value={known}
-                          tone={tone}
-                          label={`${formatConcept(item.concept)} mastery`}
-                        />
-                      </div>
+                        <div className="mt-2.5">
+                          <FillBar
+                            value={known}
+                            tone={tone}
+                            label={`${formatConcept(item.concept)} mastery`}
+                          />
+                        </div>
 
-                      {/*
-                        The prediction, not the belief. They are different
-                        numbers and the gap is the point: someone who knows
-                        nothing still scores 25% on four-option questions, and
-                        someone who knows everything still slips.
-                      */}
-                      <p className="mt-2 text-xs text-muted">
-                        Predicted chance of getting the next question right:{' '}
-                        <span className="font-semibold tabular-nums text-body">
-                          {predicted}%
-                        </span>
-                        {item.average_percentage !== null && (
-                          <>
-                            {' · '}plain average of past quizzes:{' '}
-                            <span className="tabular-nums">{item.average_percentage}%</span>
-                          </>
-                        )}
-                      </p>
-                    </div>
-                  );
-                })}
-              </Card>
+                        {/*
+                          The prediction, not the belief. They are different
+                          numbers and the gap is the point: someone who knows
+                          nothing still scores 25% on four-option questions, and
+                          someone who knows everything still slips.
+                        */}
+                        <p className="mt-2 text-xs text-muted">
+                          Predicted chance of getting the next question right:{' '}
+                          <span className="font-semibold tabular-nums text-body">
+                            {predicted}%
+                          </span>
+                          {item.average_percentage !== null && (
+                            <>
+                              {' · '}plain average of past quizzes:{' '}
+                              <span className="tabular-nums">{item.average_percentage}%</span>
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </Card>
+              </Reveal>
             </CollapsibleSection>
           )}
 
@@ -573,60 +718,131 @@ export function ProgressView() {
               above is clearer than a misleading polygon.
             */}
             {radarData.length >= 3 && (
-              <Card className="p-5">
-                <SectionTitle hint="Best score per concept">Coverage</SectionTitle>
-                <div className="h-72">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RadarChart data={radarData} outerRadius="70%">
-                      <PolarGrid stroke={chart.grid} />
-                      <PolarAngleAxis
-                        dataKey="subject"
-                        tick={{ fill: chart.axis, fontSize: 11 }}
-                      />
-                      <PolarRadiusAxis
-                        domain={[0, 100]}
-                        tick={{ fill: chart.axis, fontSize: 10 }}
-                      />
-                      <Radar
-                        name="Best score (%)"
-                        dataKey="A"
-                        stroke={chart.accent}
-                        strokeWidth={2}
-                        fill={chart.accent}
-                        fillOpacity={0.25}
-                      />
-                    </RadarChart>
-                  </ResponsiveContainer>
-                </div>
-              </Card>
+              <Reveal>
+                <Card className="h-full p-5">
+                  <SectionTitle hint="Best score per concept">Coverage</SectionTitle>
+                  <div className="h-72">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RadarChart data={radarData} outerRadius="70%">
+                        <PolarGrid stroke={chart.grid} />
+                        <PolarAngleAxis
+                          dataKey="subject"
+                          tick={{ fill: chart.axis, fontSize: 11 }}
+                        />
+                        <PolarRadiusAxis
+                          domain={[0, 100]}
+                          tick={{ fill: chart.axis, fontSize: 10 }}
+                        />
+                        <Radar
+                          name="Best score (%)"
+                          dataKey="A"
+                          stroke={chart.accent}
+                          strokeWidth={2}
+                          fill={chart.accent}
+                          fillOpacity={0.25}
+                        />
+                      </RadarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </Card>
+              </Reveal>
             )}
 
             {/* ── Trajectory ────────────────────────────────────────────── */}
             {trajectory.length >= 2 && (
+              <Reveal delay={80}>
+                <Card className="h-full p-5">
+                  <SectionTitle hint="Oldest to newest">Your trajectory</SectionTitle>
+                  <div className="h-72">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={trajectory} margin={{ top: 8, right: 8, bottom: 4, left: -18 }}>
+                        <CartesianGrid stroke={chart.grid} strokeDasharray="3 3" />
+                        <XAxis
+                          dataKey="n"
+                          tick={{ fill: chart.axis, fontSize: 11 }}
+                          stroke={chart.grid}
+                          label={{
+                            value: 'Attempt',
+                            position: 'insideBottom',
+                            offset: -2,
+                            fill: chart.axis,
+                            fontSize: 11,
+                          }}
+                        />
+                        <YAxis
+                          domain={[0, 100]}
+                          tick={{ fill: chart.axis, fontSize: 11 }}
+                          stroke={chart.grid}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            background: chart.card,
+                            border: `1px solid ${chart.grid}`,
+                            borderRadius: 12,
+                            color: chart.ink,
+                            fontSize: 12,
+                          }}
+                          formatter={(value: number) => [`${value}%`, 'Score']}
+                          labelFormatter={(label, payload) =>
+                            payload?.[0]
+                              ? `${payload[0].payload.concept} · ${payload[0].payload.when}`
+                              : `Attempt ${label}`
+                          }
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="percentage"
+                          stroke={chart.accent}
+                          strokeWidth={2.5}
+                          dot={{ r: 3, fill: chart.accent }}
+                          activeDot={{ r: 5 }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <p className="mt-2 text-xs text-muted">
+                    An average cannot tell 40 → 55 → 85 from 85 → 55 → 40. This can.
+                  </p>
+                </Card>
+              </Reveal>
+            )}
+          </div>
+
+          {/* ── Time vs score ───────────────────────────────────────────── */}
+          {timeVsScore.length >= 3 && (
+            <Reveal>
               <Card className="p-5">
-                <SectionTitle hint="Oldest to newest">Your trajectory</SectionTitle>
-                <div className="h-72">
+                <SectionTitle hint={`${timeVsScore.length} measured attempts`}>
+                  Time on the lesson against the score that followed
+                </SectionTitle>
+                <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={trajectory} margin={{ top: 8, right: 8, bottom: 4, left: -18 }}>
+                    <ScatterChart margin={{ top: 8, right: 12, bottom: 16, left: -18 }}>
                       <CartesianGrid stroke={chart.grid} strokeDasharray="3 3" />
                       <XAxis
-                        dataKey="n"
+                        type="number"
+                        dataKey="minutes"
+                        name="Minutes"
                         tick={{ fill: chart.axis, fontSize: 11 }}
                         stroke={chart.grid}
                         label={{
-                          value: 'Attempt',
+                          value: 'Minutes on the lesson',
                           position: 'insideBottom',
-                          offset: -2,
+                          offset: -8,
                           fill: chart.axis,
                           fontSize: 11,
                         }}
                       />
                       <YAxis
+                        type="number"
+                        dataKey="percentage"
+                        name="Score"
                         domain={[0, 100]}
                         tick={{ fill: chart.axis, fontSize: 11 }}
                         stroke={chart.grid}
                       />
                       <Tooltip
+                        cursor={{ strokeDasharray: '3 3', stroke: chart.grid }}
                         contentStyle={{
                           background: chart.card,
                           border: `1px solid ${chart.grid}`,
@@ -634,92 +850,27 @@ export function ProgressView() {
                           color: chart.ink,
                           fontSize: 12,
                         }}
-                        formatter={(value: number) => [`${value}%`, 'Score']}
-                        labelFormatter={(label, payload) =>
-                          payload?.[0]
-                            ? `${payload[0].payload.concept} · ${payload[0].payload.when}`
-                            : `Attempt ${label}`
+                        formatter={(value: number, name: string) =>
+                          name === 'Score' ? [`${value}%`, 'Score'] : [`${value} min`, 'Time']
                         }
                       />
-                      <Line
-                        type="monotone"
-                        dataKey="percentage"
-                        stroke={chart.accent}
-                        strokeWidth={2.5}
-                        dot={{ r: 3, fill: chart.accent }}
-                        activeDot={{ r: 5 }}
-                      />
-                    </LineChart>
+                      <Scatter data={timeVsScore} fill={chart.accent}>
+                        {timeVsScore.map((point, index) => (
+                          <Cell
+                            key={index}
+                            fill={point.percentage >= 70 ? chart.ok : chart.warn}
+                          />
+                        ))}
+                      </Scatter>
+                    </ScatterChart>
                   </ResponsiveContainer>
                 </div>
                 <p className="mt-2 text-xs text-muted">
-                  An average cannot tell 40 → 55 → 85 from 85 → 55 → 40. This can.
+                  Only attempts where the lesson was opened first. Green passed, amber did
+                  not — a few points is a picture, not a finding.
                 </p>
               </Card>
-            )}
-          </div>
-
-          {/* ── Time vs score ───────────────────────────────────────────── */}
-          {timeVsScore.length >= 3 && (
-            <Card className="p-5">
-              <SectionTitle hint={`${timeVsScore.length} measured attempts`}>
-                Time on the lesson against the score that followed
-              </SectionTitle>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ScatterChart margin={{ top: 8, right: 12, bottom: 16, left: -18 }}>
-                    <CartesianGrid stroke={chart.grid} strokeDasharray="3 3" />
-                    <XAxis
-                      type="number"
-                      dataKey="minutes"
-                      name="Minutes"
-                      tick={{ fill: chart.axis, fontSize: 11 }}
-                      stroke={chart.grid}
-                      label={{
-                        value: 'Minutes on the lesson',
-                        position: 'insideBottom',
-                        offset: -8,
-                        fill: chart.axis,
-                        fontSize: 11,
-                      }}
-                    />
-                    <YAxis
-                      type="number"
-                      dataKey="percentage"
-                      name="Score"
-                      domain={[0, 100]}
-                      tick={{ fill: chart.axis, fontSize: 11 }}
-                      stroke={chart.grid}
-                    />
-                    <Tooltip
-                      cursor={{ strokeDasharray: '3 3', stroke: chart.grid }}
-                      contentStyle={{
-                        background: chart.card,
-                        border: `1px solid ${chart.grid}`,
-                        borderRadius: 12,
-                        color: chart.ink,
-                        fontSize: 12,
-                      }}
-                      formatter={(value: number, name: string) =>
-                        name === 'Score' ? [`${value}%`, 'Score'] : [`${value} min`, 'Time']
-                      }
-                    />
-                    <Scatter data={timeVsScore} fill={chart.accent}>
-                      {timeVsScore.map((point, index) => (
-                        <Cell
-                          key={index}
-                          fill={point.percentage >= 70 ? chart.ok : chart.warn}
-                        />
-                      ))}
-                    </Scatter>
-                  </ScatterChart>
-                </ResponsiveContainer>
-              </div>
-              <p className="mt-2 text-xs text-muted">
-                Only attempts where the lesson was opened first. Green passed, amber did
-                not — a few points is a picture, not a finding.
-              </p>
-            </Card>
+            </Reveal>
           )}
 
           {/* ── The log ─────────────────────────────────────────────────── */}
@@ -751,7 +902,7 @@ export function ProgressView() {
                     className="px-5 py-4"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <span className="font-medium text-ink">
+                      <span className="font-medium capitalize text-ink">
                         {formatConcept(attempt.concept)}
                       </span>
 

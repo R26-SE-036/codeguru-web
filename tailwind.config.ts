@@ -103,8 +103,14 @@ const config: Config = {
           '0%': { transform: 'translateX(-100%)' },
           '100%': { transform: 'translateX(100%)' },
         },
+        // A menu opening from its trigger: a short drop and settle.
+        'cg-menu': {
+          from: { opacity: '0', transform: 'translateY(-4px) scale(0.98)' },
+          to: { opacity: '1', transform: 'none' },
+        },
       },
       animation: {
+        'cg-menu': 'cg-menu 0.16s var(--cg-ease) both',
         'cg-rise': 'cg-rise 0.45s var(--cg-ease) both',
         'cg-fade': 'cg-fade 0.3s var(--cg-ease) both',
         'cg-sweep': 'cg-sweep 1.6s var(--cg-ease) infinite',

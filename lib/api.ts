@@ -140,6 +140,12 @@ export const api = {
       method: 'PUT',
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
+
+  patch: <T>(service: Service, path: string, body?: unknown) =>
+    request<T>(service, path, {
+      method: 'PATCH',
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }),
 };
 
 /** Sign out, then hard-navigate so no stale client state survives. */

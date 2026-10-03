@@ -130,10 +130,12 @@ services:
       # NODE_ENV stays the image's "production" - see the header.
       CODE_COACH_URL: http://code-coach:8080
       ML_SERVICE_URL: http://pairpath-ml:8000
-      # Writes the review after a session. Needs INTERNAL_SERVICE_KEY, the
-      # same value in both services' env files; without it every review is
-      # the exercise's fixed questions.
-      STUDY_GUIDER_URL: http://study-guider:8010
+      # The review after a session is written by PairPath itself, with
+      # GEMINI_API_KEY (and OPENAI_API_KEY, if set) from its env file; without
+      # either, every review is the exercise's fixed questions. Free-coding
+      # hints and suggestions also ask Code Coach which concepts the pair's
+      # code touches, which needs INTERNAL_SERVICE_KEY - the same value in
+      # this env file and Code Coach's.
       CODE_RUNNER_LAMBDA_FUNCTION: "${CODE_RUNNER_LAMBDA_FUNCTION:?}"
       AWS_REGION: "${AWS_REGION:-ap-south-1}"
       CORS_ORIGINS: "${PUBLIC_ORIGIN:?}"

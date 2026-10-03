@@ -13,6 +13,7 @@ import {
   Lightbulb,
   MessagesSquare,
   MousePointerClick,
+  PencilLine,
   Play,
   RefreshCw,
   SendHorizonal,
@@ -24,6 +25,7 @@ import {
 import type { OnMount } from '@monaco-editor/react';
 
 import { ApiError, api } from '@/lib/api';
+import { FREE_STARTER_CODE, isFreeSession, sessionTitle } from '@/lib/pair-session';
 import { usePairSocket } from '@/lib/use-pair-socket';
 import { useMonacoTheme } from '@/lib/theme';
 import { Badge, Card, buttonClass } from '@/components/ui';
@@ -73,6 +75,8 @@ interface Session {
   status: string;
   startedAt?: string;
   finalCode?: string;
+  /** FREE: no question - the pair writes whatever they like. */
+  mode?: 'EXERCISE' | 'FREE';
   question?: {
     title?: string;
     description?: string;
@@ -85,7 +89,7 @@ interface Session {
      * connect the exercise in front of them to any of that.
      */
     conceptTags?: string[];
-  };
+  } | null;
 }
 
 /** A chat line. `note` is the wire name - see docs/inter-service-events.md. */
@@ -323,7 +327,8 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
         if (!live) return;
         setSession(data);
         startedAt.current = data.startedAt ? Date.parse(data.startedAt) : null;
-        const initial = data.finalCode || data.question?.starterCode || '';
+        const initial =
+          data.finalCode || data.question?.starterCode || (isFreeSession(data) ? FREE_STARTER_CODE : '');
         lastBroadcast.current = initial;
         setCode(initial);
       })
@@ -539,9 +544,7 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
             <Users size={19} strokeWidth={2.1} aria-hidden />
           </span>
           <div>
-            <h1 className="font-bold text-ink">
-              {session?.question?.title ?? 'Pair session'}
-            </h1>
+            <h1 className="font-bold text-ink">{sessionTitle(session)}</h1>
             <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
               <span className="rounded bg-inset px-1.5 py-0.5 font-mono text-xs tracking-widest text-ink">
                 {session?.joinCode ?? '—'}
@@ -605,6 +608,22 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
               ))}
             </div>
           )}
+        </Card>
+      )}
+
+      {isFreeSession(session) && (
+        <Card className="flex items-start gap-3 p-5">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-cg-sm bg-accent/10 text-accent">
+            <PencilLine size={17} strokeWidth={2.2} aria-hidden />
+          </span>
+          <div>
+            <p className="font-semibold text-ink">No set task - build whatever you like</p>
+            <p className="mt-1 text-sm text-body">
+              Pick something small to make together: a times table, a guessing game, a grade
+              calculator. Runs show what your program prints, and there is no right or wrong output
+              to match.
+            </p>
+          </div>
         </Card>
       )}
 
