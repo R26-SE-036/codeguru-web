@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import clsx from 'clsx';
 import {
@@ -23,6 +23,8 @@ import { FormError } from '@/components/field';
 import { Badge, Card, PageHeader, buttonClass } from '@/components/ui';
 
 import { CodePanel } from './code-panel';
+import { Feedback, ReviewFeedback, encouragement } from './feedback';
+import { Inline } from './inline';
 
 /**
  * The review after a session: a short walkthrough of the student's own code.
@@ -32,8 +34,12 @@ import { CodePanel } from './code-panel';
  * about lit up in the code above, then asks one multiple-choice question. The
  * answer is marked straight away with an explanation, and locked. A pair gets
  * a question or two about how they worked together at the end; those have no
- * right answer and are not scored. The model solution is shown once the
- * review is finished.
+ * right answer and are not scored.
+ *
+ * Once the review is finished: their code beside the model solution, what
+ * they did well, and the path from their code to a working one - see
+ * feedback.tsx. A free-coding session has no model solution, so it gets
+ * improvements and a suggested exercise instead.
  *
  * Partners answer on their own screens. They get the same questions, and how
  * often they agree is on the results page.
@@ -59,7 +65,9 @@ interface Review {
   ready: boolean;
   alreadySubmitted: boolean;
   partnerSubmitted: boolean;
-  question?: { title?: string };
+  /** EXERCISE, or FREE for a session with no question. */
+  kind?: 'EXERCISE' | 'FREE';
+  question?: { title?: string } | null;
   mode?: 'solo' | 'pair';
   source?: 'generated' | 'question_bank';
   title?: string;
@@ -69,55 +77,21 @@ interface Review {
   reflection?: { prompt: string; options: string[] }[];
   answers?: Marked[];
   solution?: { code: string; note: string | null } | null;
+  /** After the quiz only. */
+  feedback?: Feedback | null;
 }
 
 interface Submitted {
   score: number;
   outOf: number;
-  solution: { code: string; note: string | null };
+  solution: { code: string; note: string | null } | null;
+  feedback: Feedback | null;
 }
 
 const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
 const POLL_MS = 2500;
 // The server falls back to the exercise's own questions well inside this.
 const GIVE_UP_MS = 3 * 60 * 1000;
-
-/**
- * `code` in backticks as code, **this** as bold, *this* as italic, everything
- * else as text - the three the model actually uses.
- *
- * Ligatures are off in code: the mono font would draw `<=` as a single
- * symbol, and a beginner has to type the two characters.
- */
-function Inline({ text }: { text: string }) {
-  return (
-    <>
-      {text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*)/g).map((part, index) => {
-        if (part.length > 2 && part.startsWith('`') && part.endsWith('`')) {
-          return (
-            <code
-              key={index}
-              className="rounded-[5px] bg-inset px-1.5 py-0.5 font-mono text-[0.88em] font-medium text-ink [font-variant-ligatures:none]"
-            >
-              {part.slice(1, -1)}
-            </code>
-          );
-        }
-        if (part.length > 4 && part.startsWith('**') && part.endsWith('**')) {
-          return (
-            <strong key={index} className="font-semibold text-ink">
-              {part.slice(2, -2)}
-            </strong>
-          );
-        }
-        if (part.length > 2 && part.startsWith('*') && part.endsWith('*')) {
-          return <em key={index}>{part.slice(1, -1)}</em>;
-        }
-        return <Fragment key={index}>{part}</Fragment>;
-      })}
-    </>
-  );
-}
 
 function OptionButton({
   letter,
@@ -405,12 +379,16 @@ export function ReviewView({ sessionId }: { sessionId: string }) {
 
   const pair = review.mode === 'pair';
   const done = Boolean(submitted) || review.alreadySubmitted;
-  const solution = submitted?.solution ?? review.solution ?? null;
+  const free = review.kind === 'FREE';
+  const solution = submitted ? submitted.solution : (review.solution ?? null);
+  const feedback = submitted ? submitted.feedback : (review.feedback ?? null);
+  const cheer = encouragement(feedback?.outcome ?? (free ? 'free' : undefined), feedback?.improvements.length ?? 0);
   const score = submitted?.score ?? Object.values(marks).filter((m) => m.step < steps.length && m.correct).length;
   const outOf = submitted?.outOf ?? steps.length;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    // Wider once finished: the comparison puts two programs side by side.
+    <div className={clsx('mx-auto space-y-6', done && solution ? 'max-w-5xl' : 'max-w-3xl')}>
       <PageHeader
         eyebrow={pair ? 'Pair session review' : 'Session review'}
         title={review.title ?? 'Looking back at your session'}
@@ -425,7 +403,11 @@ export function ReviewView({ sessionId }: { sessionId: string }) {
           {pair ? <Users size={13} aria-hidden /> : <User size={13} aria-hidden />}
           {pair ? 'You and your partner' : 'Just you'}
         </Badge>
-        {review.question?.title && <Badge tone="neutral">{review.question.title}</Badge>}
+        {free ? (
+          <Badge tone="neutral">Free coding</Badge>
+        ) : (
+          review.question?.title && <Badge tone="neutral">{review.question.title}</Badge>
+        )}
         {review.source === 'generated' ? (
           <Badge tone="accent">
             <Sparkles size={13} aria-hidden />
@@ -436,11 +418,10 @@ export function ReviewView({ sessionId }: { sessionId: string }) {
         )}
       </div>
 
-      <CodePanel
-        code={review.code ?? ''}
-        highlight={!done && step ? step.lines : null}
-        label="Your final code"
-      />
+      {/* Once finished, the code moves into the comparison below. */}
+      {!done && (
+        <CodePanel code={review.code ?? ''} highlight={step ? step.lines : null} label="Your final code" />
+      )}
 
       {done ? (
         <>
@@ -454,6 +435,7 @@ export function ReviewView({ sessionId }: { sessionId: string }) {
                 You got <strong className="text-ink">{score}</strong> of {outOf} right.
               </p>
             )}
+            {cheer && <p className="mx-auto mt-2 max-w-lg text-body">{cheer}</p>}
             {pair && (
               <p className="mx-auto mt-2 max-w-md text-sm text-muted">
                 {review.partnerSubmitted
@@ -463,22 +445,7 @@ export function ReviewView({ sessionId }: { sessionId: string }) {
             )}
           </Card>
 
-          {solution && solution.code.trim() && (
-            <section className="space-y-3 animate-cg-rise">
-              <div>
-                <h2 className="flex items-center gap-2 text-lg font-bold text-ink">
-                  <BookOpen size={18} strokeWidth={2.2} className="text-ok" aria-hidden />
-                  The model solution
-                </h2>
-                {solution.note && (
-                  <p className="mt-1 text-body">
-                    <Inline text={solution.note} />
-                  </p>
-                )}
-              </div>
-              <CodePanel code={solution.code} label="Model solution" tone="ok" />
-            </section>
-          )}
+          <ReviewFeedback code={review.code ?? ''} solution={solution} feedback={feedback} />
 
           <div className="flex flex-wrap gap-3">
             <Link href={`/pair/${sessionId}/results`} className={buttonClass({ size: 'lg' })}>
@@ -651,7 +618,11 @@ export function ReviewView({ sessionId }: { sessionId: string }) {
             // exercise with no questions at all.
             <Card className="px-6 py-8 text-center animate-cg-rise">
               <p className="text-body">
-                {steps.length === 0 ? 'This exercise has no review questions.' : 'That was the last question.'}
+                {steps.length > 0
+                  ? 'That was the last question.'
+                  : free
+                    ? 'A written review is not available right now. Finish to see your code and an exercise to try next.'
+                    : 'This exercise has no review questions.'}
               </p>
               <button type="button" onClick={finish} disabled={busy} className={buttonClass({ className: 'mt-4' })}>
                 {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <CircleCheck size={16} aria-hidden />}

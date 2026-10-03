@@ -29,11 +29,25 @@ export function CodePanel({
   highlight = null,
   label,
   tone = 'accent',
+  changed,
+  changedTone = 'warn',
+  legend,
+  className,
 }: {
   code: string;
   highlight?: [number, number] | null;
   label: string;
   tone?: 'accent' | 'ok';
+  /**
+   * For the side-by-side after a review: true for each line with no
+   * counterpart in the other program. Marked with a tint and a bar in the
+   * gutter, never by dimming the rest - both programs are read whole.
+   */
+  changed?: boolean[];
+  changedTone?: 'warn' | 'ok';
+  /** A short note in the header, such as how many lines differ. */
+  legend?: string;
+  className?: string;
 }) {
   const lines = useMemo(() => highlightJava(code), [code]);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -51,7 +65,7 @@ export function CodePanel({
   const lit = (n: number) => highlight !== null && n >= highlight[0] && n <= highlight[1];
 
   return (
-    <section className="overflow-hidden rounded-cg-lg border border-line bg-inset shadow-cg-sm">
+    <section className={clsx('overflow-hidden rounded-cg-lg border border-line bg-inset shadow-cg-sm', className)}>
       <header className="flex items-center justify-between gap-3 border-b border-line bg-card px-4 py-2.5">
         <div className="flex items-center gap-3">
           <span className="flex gap-1.5" aria-hidden>
@@ -69,10 +83,21 @@ export function CodePanel({
             {label}
           </span>
         </div>
-        {highlight && (
+        {highlight ? (
           <span className="rounded-full bg-accent/10 px-2.5 py-0.5 text-xs font-semibold text-accent">
             {highlight[0] === highlight[1] ? `Line ${highlight[0]}` : `Lines ${highlight[0]}–${highlight[1]}`}
           </span>
+        ) : (
+          legend && (
+            <span
+              className={clsx(
+                'rounded-full px-2.5 py-0.5 text-xs font-semibold',
+                changedTone === 'ok' ? 'bg-ok/10 text-ok' : 'bg-warn/10 text-warn',
+              )}
+            >
+              {legend}
+            </span>
+          )
         )}
       </header>
 
@@ -84,6 +109,7 @@ export function CodePanel({
             {lines.map((tokens, index) => {
               const n = index + 1;
               const on = lit(n);
+              const differs = Boolean(changed?.[index]);
               return (
                 <div
                   key={index}
@@ -93,6 +119,7 @@ export function CodePanel({
                   className={clsx(
                     'flex pr-6 transition-[background-color,opacity] duration-300',
                     on && 'bg-accent/[0.12]',
+                    !on && differs && (changedTone === 'ok' ? 'bg-ok/[0.10]' : 'bg-warn/[0.12]'),
                     highlight && !on && 'opacity-45',
                   )}
                 >
@@ -100,11 +127,18 @@ export function CodePanel({
                     aria-hidden
                     className={clsx(
                       'w-12 shrink-0 select-none border-l-[3px] pr-4 text-right tabular-nums',
-                      on ? 'border-accent font-semibold text-accent' : 'border-transparent text-muted/70',
+                      on
+                        ? 'border-accent font-semibold text-accent'
+                        : differs
+                          ? changedTone === 'ok'
+                            ? 'border-ok font-semibold text-ok'
+                            : 'border-warn font-semibold text-warn'
+                          : 'border-transparent text-muted/70',
                     )}
                   >
                     {n}
                   </span>
+                  {differs && <span className="sr-only">(differs) </span>}
                   <code className="whitespace-pre">
                     {tokens.length === 0
                       ? ' '

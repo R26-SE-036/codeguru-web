@@ -29,7 +29,10 @@ const TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || 8000);
 interface Outcome {
   sessionId: string;
   status: string;
-  questionId: string;
+  /** EXERCISE or FREE; absent from a PairPath that predates free sessions. */
+  mode?: string;
+  /** Null for a free session. */
+  questionId: string | null;
   conceptTags: string[];
   difficulty: string | null;
   errorType: string | null;
@@ -100,6 +103,12 @@ export async function POST(
     // yet, and an expired one was abandoned - which is not evidence of anything.
     if (outcome.status !== 'COMPLETED') {
       return respond({ recorded: false, reason: 'not_finished' }, 409);
+    }
+    // A free session had no task, so there is nothing for Code Coach to
+    // score: no concept was being practised and no run could be right or
+    // wrong. Not an error - there is simply nothing to report.
+    if (outcome.mode === 'FREE') {
+      return respond({ recorded: false, reason: 'free_session' }, 200);
     }
     if (!outcome.conceptTags.length) {
       return respond({ recorded: false, reason: 'no_concepts' }, 200);

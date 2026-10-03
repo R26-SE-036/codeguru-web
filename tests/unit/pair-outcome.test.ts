@@ -42,4 +42,25 @@ describe('the pair outcome route', () => {
     expect(upstream).toHaveBeenCalledTimes(1);
     expect(String(upstream.mock.calls[0][0])).toBe('http://pairpath-api:3001/sessions/cm1abc2def3ghi4jkl5mno6pq/outcome');
   });
+
+  it('reports nothing to Code Coach for a free-coding session', async () => {
+    const upstream = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({ status: 'COMPLETED', mode: 'FREE', questionId: null, conceptTags: [] }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal('fetch', upstream);
+
+    const response = await POST(
+      await makeRequest('/api/pair/outcome/x', { method: 'POST', session: makeSession() }),
+      context('cm1abc2def3ghi4jkl5mno6pq'),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ recorded: false, reason: 'free_session' });
+    // PairPath only: no learning session opened, no result posted.
+    expect(upstream).toHaveBeenCalledTimes(1);
+  });
 });

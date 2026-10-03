@@ -28,6 +28,7 @@ import {
   type SessionEvent,
 } from '@/lib/pair-events';
 import { Badge, Card, EmptyState, PageHeader, Unavailable, buttonClass } from '@/components/ui';
+import { sessionTitle } from '@/lib/pair-session';
 
 /**
  * Everything one session left behind.
@@ -66,7 +67,8 @@ interface SessionDetail {
   startedAt: string;
   endedAt?: string | null;
   finalCode?: string | null;
-  question?: { title?: string; description?: string; difficulty?: string };
+  mode?: 'EXERCISE' | 'FREE';
+  question?: { title?: string; description?: string; difficulty?: string } | null;
   members?: Member[];
   events?: SessionEvent[];
   predictions?: Prediction[];
@@ -152,7 +154,7 @@ export default function SessionHistoryPage({
     <div className="space-y-6">
       <PageHeader
         eyebrow="Pair"
-        title={session.question?.title ?? 'Pair session'}
+        title={sessionTitle(session)}
         lead={`${sessionDuration(session.startedAt, session.endedAt)} · ${new Date(
           session.startedAt,
         ).toLocaleString()}`}

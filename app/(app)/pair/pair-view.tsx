@@ -7,17 +7,25 @@ import {
   ArrowRight,
   BarChart3,
   BrainCircuit,
+  FileCode2,
   FlaskConical,
   History,
   KeyRound,
+  Layers,
+  ListChecks,
   Loader2,
+  PencilLine,
   Play,
   Users,
 } from 'lucide-react';
 
+import clsx from 'clsx';
+
 import { ApiError, api } from '@/lib/api';
 import { FormError } from '@/components/field';
+import { Select } from '@/components/select';
 import { formatConcept, formatErrorType } from '@/lib/vocabulary';
+import { sessionTitle } from '@/lib/pair-session';
 import {
   Badge,
   Card,
@@ -27,7 +35,8 @@ import {
 } from '@/components/ui';
 
 /**
- * Start a session on a question, or join a partner's with their code.
+ * Start a session on a question, start one with no question at all, or join a
+ * partner's with their code.
  */
 
 interface Topic {
@@ -55,11 +64,14 @@ interface Session {
   id: string;
   joinCode: string;
   status: string;
+  /** EXERCISE, or FREE for a session with no question. Absent on old responses. */
+  mode?: 'EXERCISE' | 'FREE';
   startedAt: string;
   endedAt?: string | null;
   members?: Member[];
-  question?: { id?: string; title?: string };
+  question?: { id?: string; title?: string } | null;
 }
+
 
 /**
  * Enough to tell two rows on the same question apart.
@@ -221,9 +233,21 @@ function recommend(
   return picks;
 }
 
-const SELECT_CLASS =
-  'cg-focusable h-11 w-full rounded-cg border border-line bg-card px-3 text-ink ' +
-  'hover:border-line-strong focus-visible:border-accent disabled:opacity-60';
+/** A difficulty as a coloured pill: gentle green, then amber, then red. */
+function difficultyBadge(difficulty: string) {
+  const level = difficulty.toUpperCase();
+  return {
+    text: level.charAt(0) + level.slice(1).toLowerCase(),
+    className:
+      level === 'BEGINNER'
+        ? 'bg-ok/10 text-ok'
+        : level === 'INTERMEDIATE'
+          ? 'bg-warn/10 text-warn'
+          : level === 'ADVANCED'
+            ? 'bg-danger/10 text-danger'
+            : 'bg-card-alt text-muted',
+  };
+}
 
 /**
  * Asking before a student's sessions become research data.
@@ -336,6 +360,9 @@ export function PairView({ userId }: { userId: string }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [topicId, setTopicId] = useState('');
   const [questionId, setQuestionId] = useState('');
+  // An exercise from the bank, or nothing set at all: the pair codes whatever
+  // they like. See PairSession.mode in PairPath's schema.
+  const [startMode, setStartMode] = useState<'EXERCISE' | 'FREE'>('EXERCISE');
   const [joinCode, setJoinCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   // The page's own data failed to load, as opposed to an action failing. Only
@@ -415,10 +442,14 @@ export function PairView({ userId }: { userId: string }) {
 
   async function createSession(id: string = questionId) {
     if (!id) return;
+    await start({ questionId: id });
+  }
+
+  async function start(body: { questionId: string } | { mode: 'FREE' }) {
     setBusy(true);
     setError(null);
     try {
-      const session = await api.post<Session>('pair', '/sessions', { questionId: id });
+      const session = await api.post<Session>('pair', '/sessions', body);
       router.push(`/pair/${session.id}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not start a session.');
@@ -445,7 +476,7 @@ export function PairView({ userId }: { userId: string }) {
       <PageHeader
         eyebrow="Pair"
         title="Solve it with a partner"
-        lead="Work through a problem together in a shared editor. One drives, one navigates, and you swap as you go."
+        lead="Work through an exercise together in a shared editor, or code whatever you like. One drives, one navigates, and you swap as you go."
         icon={Users}
         tone="text-hue-pair"
         toneBg="bg-hue-pair/10"
@@ -543,70 +574,114 @@ export function PairView({ userId }: { userId: string }) {
             </span>
             <div>
               <h2 className="font-bold text-ink">Start a session</h2>
-              <p className="text-sm text-muted">Pick something to work on.</p>
+              <p className="text-sm text-muted">Pick an exercise, or code whatever you like.</p>
             </div>
           </div>
 
-          <div className="mt-5 flex-1 space-y-4">
-            <div>
-              <label htmlFor="topic" className="mb-1.5 block text-sm font-semibold text-ink">
-                Topic
-              </label>
-              <select
-                id="topic"
-                value={topicId}
-                onChange={(event) => {
-                  setTopicId(event.target.value);
-                  setQuestionId('');
-                }}
-                className={SELECT_CLASS}
+          <div
+            role="radiogroup"
+            aria-label="What to work on"
+            className="mt-5 grid grid-cols-2 gap-1 rounded-cg bg-inset p-1"
+          >
+            {(
+              [
+                ['EXERCISE', 'An exercise', ListChecks],
+                ['FREE', 'Free coding', PencilLine],
+              ] as const
+            ).map(([value, label, Icon]) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={startMode === value}
+                onClick={() => setStartMode(value)}
+                className={clsx(
+                  'cg-focusable flex items-center justify-center gap-2 rounded-cg-sm px-3 py-2 text-sm font-semibold transition',
+                  startMode === value
+                    ? 'bg-card text-ink shadow-cg-sm'
+                    : 'text-muted hover:text-ink',
+                )}
               >
-                <option value="">
-                  {topics === null ? 'Loading…' : 'Choose a topic…'}
-                </option>
-                {topics?.map((topic) => (
-                  <option key={topic.id} value={topic.id}>
-                    {topic.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label
-                htmlFor="question"
-                className="mb-1.5 block text-sm font-semibold text-ink"
-              >
-                Question
-              </label>
-              <select
-                id="question"
-                value={questionId}
-                onChange={(event) => setQuestionId(event.target.value)}
-                disabled={!questions.length}
-                className={SELECT_CLASS}
-              >
-                <option value="">
-                  {questions.length ? 'Choose a question…' : 'Pick a topic first'}
-                </option>
-                {questions.map((question) => (
-                  <option key={question.id} value={question.id}>
-                    {question.title}
-                    {question.difficulty ? ` · ${question.difficulty}` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
+                <Icon size={15} strokeWidth={2.2} aria-hidden />
+                {label}
+              </button>
+            ))}
           </div>
+
+          {startMode === 'FREE' ? (
+            <div className="mt-4 flex-1 space-y-3 text-sm text-body">
+              <p>
+                No topic and no set task: you and your partner write whatever you want, starting from
+                an empty <code className="rounded bg-inset px-1 font-mono text-[0.9em] text-ink">Main</code>{' '}
+                class.
+              </p>
+              <ul className="list-disc space-y-1 pl-5 text-muted">
+                <li>Runs show what your program prints, with no right or wrong.</li>
+                <li>Hints come from what Code Coach sees in your code.</li>
+                <li>The review looks at your own code and suggests an exercise to try next.</li>
+              </ul>
+            </div>
+          ) : (
+            <div className="mt-4 flex-1 space-y-4">
+              <div>
+                <span id="topic-label" className="mb-1.5 block text-sm font-semibold text-ink">
+                  Topic
+                </span>
+                <Select
+                  id="topic"
+                  aria-labelledby="topic-label"
+                  icon={Layers}
+                  value={topicId}
+                  onChange={(id) => {
+                    setTopicId(id);
+                    setQuestionId('');
+                  }}
+                  placeholder={topics === null ? 'Loading…' : 'Choose a topic…'}
+                  disabled={!topics?.length}
+                  options={(topics ?? []).map((topic) => {
+                    const count = topic.questions?.length ?? 0;
+                    return {
+                      value: topic.id,
+                      label: topic.name,
+                      hint: count ? `${count} exercise${count === 1 ? '' : 's'}` : undefined,
+                    };
+                  })}
+                />
+              </div>
+
+              <div>
+                <span id="question-label" className="mb-1.5 block text-sm font-semibold text-ink">
+                  Question
+                </span>
+                <Select
+                  id="question"
+                  aria-labelledby="question-label"
+                  icon={FileCode2}
+                  value={questionId}
+                  onChange={setQuestionId}
+                  placeholder={questions.length ? 'Choose a question…' : 'Pick a topic first'}
+                  disabled={!questions.length}
+                  options={questions.map((question) => ({
+                    value: question.id,
+                    label: question.title,
+                    hint: question.conceptTags?.length
+                      ? question.conceptTags.slice(0, 3).map(formatConcept).join(' · ')
+                      : undefined,
+                    badge: question.difficulty ? difficultyBadge(question.difficulty) : undefined,
+                  }))}
+                />
+              </div>
+            </div>
+          )}
 
           <button
             type="button"
-            onClick={() => createSession()}
-            disabled={!questionId || busy}
+            onClick={() => (startMode === 'FREE' ? start({ mode: 'FREE' }) : createSession())}
+            disabled={(startMode === 'EXERCISE' && !questionId) || busy}
             className={buttonClass({ size: 'lg', className: 'mt-6 w-full' })}
           >
             {busy ? <Loader2 size={17} className="animate-spin" aria-hidden /> : null}
-            Start session
+            {startMode === 'FREE' ? 'Start free coding' : 'Start session'}
           </button>
         </Card>
 
@@ -680,8 +755,9 @@ export function PairView({ userId }: { userId: string }) {
                   className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"
                 >
                   <Link href={destination} className="cg-focusable group min-w-0 flex-1">
-                    <p className="font-semibold text-ink">
-                      {session.question?.title ?? 'Pair session'}
+                    <p className="flex flex-wrap items-center gap-2 font-semibold text-ink">
+                      {sessionTitle(session)}
+                      {session.mode === 'FREE' && <Badge tone="accent">No topic</Badge>}
                     </p>
                     <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
                       <span>{whenStarted(session.startedAt)}</span>
