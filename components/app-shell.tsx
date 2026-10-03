@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Download, FolderDown, LogOut, Menu, X } from 'lucide-react';
+import { ChevronRight, Download, FolderDown, LogOut, Menu, SquareCode, X } from 'lucide-react';
 import clsx from 'clsx';
 
-import { SECTIONS, activeSection } from '@/lib/nav';
+import { SECTIONS, activeSection, type Section } from '@/lib/nav';
 import { signOut } from '@/lib/api';
 import { Brand } from '@/components/brand';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -131,46 +131,57 @@ export function AppShell({
       </a>
 
       {/* ── Desktop rail ─────────────────────────────────────────────────── */}
-      <aside className="sticky top-0 hidden h-screen flex-col border-r border-line bg-card/70 px-4 py-5 backdrop-blur-xl lg:flex">
-        <Brand className="px-2" />
+      <aside className="sticky top-0 hidden h-screen flex-col overflow-hidden border-r border-line bg-card/70 px-4 py-5 backdrop-blur-xl lg:flex">
+        {/* One faint bloom at the top, in the brand's violet, so the rail has
+            the same depth as the page beside it. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -left-20 -top-24 h-56 w-56 rounded-full bg-hue-study/15 blur-3xl"
+        />
 
-        <nav aria-label="Sections" className="mt-7 flex flex-1 flex-col gap-1">
-          {SECTIONS.map((section) => (
-            <NavLink
-              key={section.href}
-              section={section}
-              active={current?.href === section.href}
-            />
-          ))}
+        <Brand className="relative px-2" />
+
+        <p className="relative mt-8 px-3 text-[11px] font-semibold uppercase tracking-widest text-muted">
+          Menu
+        </p>
+
+        <nav aria-label="Sections" className="relative mt-2 flex flex-1 flex-col">
+          <RailNav current={current} />
         </nav>
 
-        <div className="mt-4 space-y-3 border-t border-line pt-4">
-          <div className="space-y-0.5">
-            <ExtensionLink />
-            <SampleJavaLink />
-          </div>
-          <Link
-            href="/account"
-            title="Your account"
-            className="cg-focusable flex items-center gap-3 rounded-cg-sm px-1 py-1 transition hover:bg-card-alt"
-          >
-            <Avatar initials={initials} />
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-semibold text-ink">{name}</div>
-              <div className="truncate text-xs text-muted">{email}</div>
-            </div>
-          </Link>
+        <div className="relative mt-4 space-y-3">
+          <ExtensionCard />
+          <SampleJavaLink />
 
-          <div className="flex items-center justify-between gap-2 px-1">
-            <ThemeToggle />
-            <button
-              type="button"
-              onClick={() => signOut()}
-              className="cg-focusable inline-flex items-center gap-1.5 rounded-cg-sm px-2.5 py-1.5 text-sm font-medium text-muted transition hover:bg-danger/10 hover:text-danger"
+          <div className="rounded-cg-lg border border-line bg-card-alt/60 p-2">
+            <Link
+              href="/account"
+              title="Your account"
+              className="cg-focusable group flex items-center gap-3 rounded-cg-sm p-1.5 transition hover:bg-card"
             >
-              <LogOut size={14} strokeWidth={2.2} aria-hidden />
-              Sign out
-            </button>
+              <Avatar initials={initials} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-semibold text-ink">{name}</div>
+                <div className="truncate text-xs text-muted">{email}</div>
+              </div>
+              <ChevronRight
+                size={15}
+                aria-hidden
+                className="shrink-0 text-muted transition-transform duration-200 ease-cg group-hover:translate-x-0.5"
+              />
+            </Link>
+
+            <div className="mt-2 flex items-center justify-between gap-1 border-t border-line pt-2">
+              <ThemeToggle />
+              <button
+                type="button"
+                onClick={() => signOut()}
+                className="cg-focusable inline-flex items-center gap-1.5 whitespace-nowrap rounded-cg-sm px-2 py-1.5 text-sm font-medium text-muted transition hover:bg-danger/10 hover:text-danger"
+              >
+                <LogOut size={14} strokeWidth={2.2} aria-hidden />
+                Sign out
+              </button>
+            </div>
           </div>
         </div>
       </aside>
@@ -251,10 +262,8 @@ export function AppShell({
             </nav>
 
             <div className="space-y-3 border-t border-line pt-4">
-              <div className="space-y-0.5">
-                <ExtensionLink />
-                <SampleJavaLink />
-              </div>
+              <ExtensionCard />
+              <SampleJavaLink />
               <Link
                 href="/account"
                 className="cg-focusable flex items-center gap-3 rounded-cg-sm py-1 transition hover:bg-card-alt"
@@ -282,14 +291,58 @@ export function AppShell({
   );
 }
 
+/* ── Desktop navigation ──────────────────────────────────────────────────────
+   One highlight that slides to the active section, rather than one per link
+   that blinks on and off. Every rail item is the same fixed height so the
+   slide is a single translate by index - no measuring - and the highlight
+   takes the active section's hue, so it changes colour as it moves. */
+
+const RAIL_ITEM = 44; // h-11
+const RAIL_GAP = 4; // gap-1
+
+function RailNav({ current }: { current: Section | undefined }) {
+  const index = SECTIONS.findIndex((section) => section.href === current?.href);
+
+  return (
+    <div className="relative flex flex-col gap-1">
+      {index >= 0 && current && (
+        <span
+          aria-hidden
+          className="absolute inset-x-0 top-0 h-11 rounded-cg bg-card-alt shadow-cg-xs ring-1 ring-inset ring-line transition-transform duration-300 ease-cg"
+          style={{ transform: `translateY(${index * (RAIL_ITEM + RAIL_GAP)}px)` }}
+        >
+          <span
+            className={clsx(
+              'absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-gradient-to-b',
+              current.gradient,
+            )}
+          />
+        </span>
+      )}
+
+      {SECTIONS.map((section) => (
+        <NavLink
+          key={section.href}
+          section={section}
+          active={current?.href === section.href}
+          rail
+        />
+      ))}
+    </div>
+  );
+}
+
 function NavLink({
   section,
   active,
   withBlurb = false,
+  rail = false,
 }: {
-  section: (typeof SECTIONS)[number];
+  section: Section;
   active: boolean;
   withBlurb?: boolean;
+  /** In the desktop rail, where RailNav draws the shared active highlight. */
+  rail?: boolean;
 }) {
   const Icon = section.icon;
 
@@ -298,25 +351,31 @@ function NavLink({
       href={section.href}
       aria-current={active ? 'page' : undefined}
       className={clsx(
-        'cg-focusable group relative flex items-center gap-3 rounded-cg px-3 py-2.5 transition duration-150 ease-cg',
-        active ? 'bg-card-alt' : 'hover:bg-card-alt/70',
+        'cg-focusable group relative flex items-center gap-3 rounded-cg px-3 transition duration-150 ease-cg',
+        rail ? 'h-11' : 'py-2.5',
+        active ? (rail ? '' : 'bg-card-alt') : 'hover:bg-card-alt/70',
       )}
     >
       {/* The active marker is a bar in the section's own hue, so the rail
-          shows which area you are in by colour before you read the label. */}
-      <span
-        aria-hidden
-        className={clsx(
-          'absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-gradient-to-b transition-opacity duration-200',
-          section.gradient,
-          active ? 'opacity-100' : 'opacity-0',
-        )}
-      />
+          shows which area you are in by colour before you read the label.
+          In the rail it travels with the shared highlight instead. */}
+      {!rail && (
+        <span
+          aria-hidden
+          className={clsx(
+            'absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-gradient-to-b transition-opacity duration-200',
+            section.gradient,
+            active ? 'opacity-100' : 'opacity-0',
+          )}
+        />
+      )}
 
       <span
         className={clsx(
-          'grid h-8 w-8 shrink-0 place-items-center rounded-cg-sm transition',
-          active ? clsx(section.bg, section.text) : 'text-muted group-hover:text-ink',
+          'grid h-8 w-8 shrink-0 place-items-center rounded-cg-sm transition duration-200 ease-cg',
+          active
+            ? clsx(section.bg, section.text)
+            : 'text-muted group-hover:scale-110 group-hover:text-ink',
         )}
       >
         <Icon size={17} strokeWidth={2.1} aria-hidden />
@@ -342,15 +401,34 @@ function NavLink({
 /**
  * The VS Code extension, from any page. A plain <a>: it is a file download via
  * a redirect (app/download/vscode-extension), not a page to route to.
+ *
+ * A card rather than a text link because nothing on the platform happens
+ * until it is installed - it is the one link in the rail a new student most
+ * needs to notice.
  */
-function ExtensionLink() {
+function ExtensionCard() {
   return (
     <a
       href="/download/vscode-extension"
-      className="cg-focusable flex items-center gap-2 rounded-cg-sm px-2 py-1.5 text-sm font-medium text-muted transition hover:bg-card-alt hover:text-ink"
+      className="cg-focusable group relative block overflow-hidden rounded-cg-lg border border-line bg-card-alt/60 p-3.5 transition duration-200 ease-cg hover:-translate-y-0.5 hover:border-line-strong hover:shadow-cg-md"
     >
-      <Download size={15} strokeWidth={2.2} aria-hidden />
-      Get the VS Code extension
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -right-8 -top-10 h-24 w-24 rounded-full bg-hue-insight/25 blur-2xl transition-opacity duration-300 group-hover:opacity-100 opacity-70"
+      />
+      <div className="relative flex items-start gap-3">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-cg-sm bg-hue-insight/10 text-hue-insight">
+          <SquareCode size={17} strokeWidth={2.2} aria-hidden />
+        </span>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-ink">VS Code extension</div>
+          <div className="mt-0.5 text-xs text-muted">Underlines mistakes as you type.</div>
+          <div className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-hue-insight">
+            <Download size={13} strokeWidth={2.4} aria-hidden />
+            Download
+          </div>
+        </div>
+      </div>
     </a>
   );
 }
