@@ -1,4 +1,9 @@
-import { HeaderSkeleton, LoadingShell, StatRowSkeleton } from '@/components/skeletons';
+import {
+  CardGridSkeleton,
+  HeaderSkeleton,
+  LoadingShell,
+  StatRowSkeleton,
+} from '@/components/skeletons';
 
 export default function InsightsLoading() {
   return (
@@ -6,9 +11,10 @@ export default function InsightsLoading() {
       <HeaderSkeleton />
       <StatRowSkeleton />
       <div className="grid gap-6 lg:grid-cols-5">
-        <div className="cg-skeleton h-80 lg:col-span-2" />
-        <div className="cg-skeleton h-80 lg:col-span-3" />
+        <div className="cg-skeleton h-96 lg:col-span-2" />
+        <div className="cg-skeleton h-96 lg:col-span-3" />
       </div>
+      <CardGridSkeleton count={2} />
     </LoadingShell>
   );
 }
