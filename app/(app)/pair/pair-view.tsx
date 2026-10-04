@@ -7,6 +7,7 @@ import {
   ArrowRight,
   BarChart3,
   BrainCircuit,
+  Crown,
   FileCode2,
   FlaskConical,
   History,
@@ -24,6 +25,8 @@ import clsx from 'clsx';
 import { ApiError, api } from '@/lib/api';
 import { FormError } from '@/components/field';
 import { Select } from '@/components/select';
+import { ProBadge } from '@/components/pro';
+import { usePlan } from '@/lib/use-plan';
 import { formatConcept, formatErrorType } from '@/lib/vocabulary';
 import { sessionTitle } from '@/lib/pair-session';
 import {
@@ -363,6 +366,9 @@ export function PairView({ userId }: { userId: string }) {
   // An exercise from the bank, or nothing set at all: the pair codes whatever
   // they like. See PairSession.mode in PairPath's schema.
   const [startMode, setStartMode] = useState<'EXERCISE' | 'FREE'>('EXERCISE');
+  // Free coding is Pro. Exercise sessions, joining and the review quiz stay free.
+  const { isFree } = usePlan();
+  const freeCodingLocked = isFree && startMode === 'FREE';
   const [joinCode, setJoinCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   // The page's own data failed to load, as opposed to an action failing. Only
@@ -604,6 +610,7 @@ export function PairView({ userId }: { userId: string }) {
               >
                 <Icon size={15} strokeWidth={2.2} aria-hidden />
                 {label}
+                {value === 'FREE' && isFree && <ProBadge className="ml-0.5" />}
               </button>
             ))}
           </div>
@@ -620,6 +627,12 @@ export function PairView({ userId }: { userId: string }) {
                 <li>Hints come from what Code Coach sees in your code.</li>
                 <li>The review looks at your own code and suggests an exercise to try next.</li>
               </ul>
+              {freeCodingLocked && (
+                <p className="rounded-cg border border-hue-play/30 bg-hue-play/10 px-3 py-2 text-sm text-body">
+                  Free coding is part of <span className="font-semibold text-ink">Code Guru Pro</span>. Exercise
+                  sessions stay free - and a Free partner can still join your Pro session.
+                </p>
+              )}
             </div>
           ) : (
             <div className="mt-4 flex-1 space-y-4">
@@ -674,15 +687,22 @@ export function PairView({ userId }: { userId: string }) {
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={() => (startMode === 'FREE' ? start({ mode: 'FREE' }) : createSession())}
-            disabled={(startMode === 'EXERCISE' && !questionId) || busy}
-            className={buttonClass({ size: 'lg', className: 'mt-6 w-full' })}
-          >
-            {busy ? <Loader2 size={17} className="animate-spin" aria-hidden /> : null}
-            {startMode === 'FREE' ? 'Start free coding' : 'Start session'}
-          </button>
+          {freeCodingLocked ? (
+            <Link href="/pro?from=pair" className={buttonClass({ size: 'lg', className: 'mt-6 w-full' })}>
+              <Crown size={17} strokeWidth={2.3} aria-hidden />
+              Upgrade to Pro for free coding
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={() => (startMode === 'FREE' ? start({ mode: 'FREE' }) : createSession())}
+              disabled={(startMode === 'EXERCISE' && !questionId) || busy}
+              className={buttonClass({ size: 'lg', className: 'mt-6 w-full' })}
+            >
+              {busy ? <Loader2 size={17} className="animate-spin" aria-hidden /> : null}
+              {startMode === 'FREE' ? 'Start free coding' : 'Start session'}
+            </button>
+          )}
         </Card>
 
         {/* ── Join ───────────────────────────────────────────────────────── */}

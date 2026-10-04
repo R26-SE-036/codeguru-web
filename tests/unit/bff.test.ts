@@ -12,6 +12,7 @@ vi.mock('@/lib/code-coach', async (importOriginal) => ({
 
 import { GET, POST } from '@/app/api/bff/[service]/[...path]/route';
 import { exchangeForPairPath } from '@/lib/code-coach';
+import { forgetPlan } from '@/lib/plan';
 import { SESSION_COOKIE, unsealSession } from '@/lib/session';
 import { jsonResponse, makeRequest, makeSession } from './helpers';
 
@@ -111,11 +112,11 @@ describe('forwarding', () => {
     const upstream = stubUpstream(reply({}));
 
     await GET(
-      await makeRequest('/api/bff/study/progress/me', {
+      await makeRequest('/api/bff/study/remediation/triggers', {
         session: makeSession(),
         headers: { authorization: 'Bearer chosen-by-the-browser' },
       }),
-      context('study', 'progress', 'me'),
+      context('study', 'remediation', 'triggers'),
     );
 
     const { headers } = sent(upstream);
@@ -128,7 +129,8 @@ describe('forwarding', () => {
     const upstream = stubUpstream(reply({ ok: true }, 201));
 
     const response = await POST(
-      await makeRequest('/api/bff/play/game/submit', { session: makeSession(), body: { questionId: 'q1', selectedAnswer: 'B' } }),
+      // The daily challenge: a free-plan round, so no plan lookup comes first.
+      await makeRequest('/api/bff/play/game/submit', { session: makeSession(), body: { questionId: 'q1', selectedAnswer: 'B', mode: 'daily' } }),
       context('play', 'game', 'submit'),
     );
 
@@ -136,7 +138,7 @@ describe('forwarding', () => {
     const { url, init } = sent(upstream);
     expect(url).toBe('http://gamification-api:3002/api/v1/gamification/game/submit');
     expect(init.method).toBe('POST');
-    expect(JSON.parse(Buffer.from(init.body as ArrayBuffer).toString())).toEqual({ questionId: 'q1', selectedAnswer: 'B' });
+    expect(JSON.parse(Buffer.from(init.body as ArrayBuffer).toString())).toEqual({ questionId: 'q1', selectedAnswer: 'B', mode: 'daily' });
   });
 
   it('passes an upstream error status and body through', async () => {
@@ -252,5 +254,77 @@ describe('PairPath token repair', () => {
     expect(response.status).toBe(401);
     expect(upstream).toHaveBeenCalledTimes(1);
     expect(exchangeForPairPath).toHaveBeenCalledTimes(1);
+  });
+});
+
+/*
+ * Free and Pro. The proxy is the paywall: it is the only way a browser reaches
+ * the gamification engine, Study Guider and PairPath - see lib/plan-gate.ts.
+ */
+describe('free and pro', () => {
+  const plan = (tier: 'free' | 'pro', unlocked: unknown[] = []) =>
+    reply({ plan: { tier }, free_lessons: { used: unlocked.length, limit: 3, unlocked } });
+
+  const fresh = () => forgetPlan(makeSession().accessToken);
+
+  it('refuses a Pro feature on the Free plan without calling the service', async () => {
+    fresh();
+    const upstream = stubUpstream(plan('free'), reply({ entries: [] }));
+
+    const response = await GET(await makeRequest('/api/bff/play/leaderboard', { session: makeSession() }), context('play', 'leaderboard'));
+
+    expect(response.status).toBe(402);
+    expect(await response.json()).toMatchObject({ upgrade: true, feature: 'leaderboard' });
+    expect(upstream).toHaveBeenCalledTimes(1);
+    expect(sent(upstream).url).toContain('/api/v1/billing/me');
+  });
+
+  it('lets a Pro student through', async () => {
+    fresh();
+    const upstream = stubUpstream(plan('pro'), reply({ entries: [] }));
+
+    const response = await GET(await makeRequest('/api/bff/play/leaderboard', { session: makeSession() }), context('play', 'leaderboard'));
+
+    expect(response.status).toBe(200);
+    expect(sent(upstream, 1).url).toBe('http://gamification-api:3002/api/v1/gamification/leaderboard');
+  });
+
+  it('lets the request through when Code Coach cannot say which plan', async () => {
+    fresh();
+    stubUpstream(reply({ detail: 'down' }, 503), reply({ entries: [] }));
+
+    const response = await GET(await makeRequest('/api/bff/play/leaderboard', { session: makeSession() }), context('play', 'leaderboard'));
+
+    // A student who paid is never locked out by our own outage.
+    expect(response.status).toBe(200);
+  });
+
+  it("removes the comparison from a Free student's review, and keeps it for Pro", async () => {
+    const review = { ready: true, solution: { code: 'x', note: null }, feedback: { strengths: ['Clear loop'] } };
+
+    fresh();
+    stubUpstream(reply(review), plan('free'));
+    const free = await GET(await makeRequest('/api/bff/pair/reviews/s1', { session: makeSession() }), context('pair', 'reviews', 's1'));
+    expect(await free.json()).toMatchObject({ feedback: null, feedbackLocked: true, solution: { code: 'x' } });
+
+    fresh();
+    stubUpstream(reply(review), plan('pro'));
+    const pro = await GET(await makeRequest('/api/bff/pair/reviews/s1', { session: makeSession() }), context('pair', 'reviews', 's1'));
+    expect(await pro.json()).toMatchObject({ feedback: { strengths: ['Clear loop'] } });
+  });
+
+  it("asks Code Coach before opening a lesson, and refuses once the month's are used", async () => {
+    fresh();
+    const upstream = stubUpstream(reply({ detail: 'You have opened all 3 free lessons this month.' }, 402));
+
+    const response = await POST(
+      await makeRequest('/api/bff/study/struggle/detect', { session: makeSession(), body: { trigger_id: 't4', error_type: 'E' } }),
+      context('study', 'struggle', 'detect'),
+    );
+
+    expect(response.status).toBe(402);
+    expect(await response.json()).toMatchObject({ feature: 'lessons', detail: 'You have opened all 3 free lessons this month.' });
+    expect(sent(upstream).url).toContain('/api/v1/billing/me/lesson-unlocks');
+    expect(upstream).toHaveBeenCalledTimes(1);
   });
 });

@@ -22,6 +22,7 @@ import { relativeTime } from '@/lib/time';
 import { FORMATS, type PlayerOverview } from '@/lib/arcade';
 import { Badge, Card, EmptyState, SectionTitle, Unavailable, buttonClass } from '@/components/ui';
 import { CountUp, Reveal } from '@/components/motion';
+import { LockedPreview } from '@/components/pro';
 import { FillBar, Ring } from '@/components/charts';
 import {
   AchievementsGallery,
@@ -72,6 +73,7 @@ export function PlayView({
   recommendationsLoaded,
   rounds,
   catalog,
+  free = false,
 }: {
   firstName: string;
   overview: PlayerOverview | null;
@@ -79,6 +81,8 @@ export function PlayView({
   recommendationsLoaded: boolean;
   rounds: GameSummary[] | null;
   catalog: Catalog | null;
+  /** On the Free plan: the daily challenge is open, free play and the leaderboard are locked. */
+  free?: boolean;
 }) {
   return (
     <div className="space-y-10">
@@ -96,7 +100,14 @@ export function PlayView({
       <div className="grid gap-6 lg:grid-cols-5">
         <div className="space-y-6 lg:col-span-3">
           {overview && <DailyChallenge daily={overview.daily} />}
-          <UpNext recommendation={recommendation} loaded={recommendationsLoaded} />
+          <LockedPreview
+            locked={free}
+            title="Your next round"
+            description="Rounds picked for your weakest concept are part of free play."
+            from="practice"
+          >
+            <UpNext recommendation={recommendation} loaded={recommendationsLoaded} />
+          </LockedPreview>
         </div>
 
         <section className="lg:col-span-2">
@@ -127,7 +138,14 @@ export function PlayView({
         </Reveal>
         {catalog ? (
           <Reveal>
-            <FreePlay catalog={catalog} suggestedConcept={recommendation?.concept_tag ?? null} />
+            <LockedPreview
+              locked={free}
+              title="Free play"
+              description="Play any of the four formats on any concept, as often as you like. The daily challenge stays free."
+              from="practice"
+            >
+              <FreePlay catalog={catalog} suggestedConcept={recommendation?.concept_tag ?? null} />
+            </LockedPreview>
           </Reveal>
         ) : (
           <Unavailable what="The game list" />
@@ -136,7 +154,18 @@ export function PlayView({
 
       <div className="grid gap-6 lg:grid-cols-5">
         <Reveal className="lg:col-span-3">
-          <LeaderboardCard initialVisible={overview?.player.showOnLeaderboard ?? true} />
+          {free ? (
+            <LockedPreview
+              locked
+              title="Leaderboards"
+              description="See where you rank this week, all time and on today's challenge."
+              from="practice"
+            >
+              <LeaderboardPlaceholder />
+            </LockedPreview>
+          ) : (
+            <LeaderboardCard initialVisible={overview?.player.showOnLeaderboard ?? true} />
+          )}
         </Reveal>
         {overview && (
           <Reveal delay={80} className="lg:col-span-2">
@@ -446,6 +475,43 @@ function UpNext({ recommendation, loaded }: { recommendation: Recommendation | n
 }
 
 /* ── Lifetime stats ──────────────────────────────────────────────────────── */
+
+/**
+ * The leaderboard's shape behind the lock, for a Free student. Bars, not
+ * names: the real board is not fetched (the proxy would refuse it), and a
+ * made-up ranking with made-up students would be a fake record.
+ */
+function LeaderboardPlaceholder() {
+  return (
+    <Card className="p-6">
+      <div className="flex items-center justify-between">
+        <p className="font-bold text-ink">Leaderboard</p>
+        <div className="flex gap-1">
+          {['Week', 'All time', 'Today'].map((tab) => (
+            <span key={tab} className="rounded-cg-sm bg-card-alt px-2.5 py-1 text-xs font-semibold text-muted">{tab}</span>
+          ))}
+        </div>
+      </div>
+      <div className="mt-6 flex items-end justify-center gap-4">
+        {[64, 88, 52].map((height, i) => (
+          <div key={i} className="flex w-20 flex-col items-center gap-2">
+            <span className="h-10 w-10 rounded-full bg-card-alt" />
+            <span className="w-full rounded-t-cg bg-hue-play/20" style={{ height }} />
+          </div>
+        ))}
+      </div>
+      <ul className="mt-5 space-y-2">
+        {[4, 5, 6, 7].map((rank) => (
+          <li key={rank} className="flex items-center gap-3 rounded-cg-sm bg-card-alt/60 px-3 py-2">
+            <span className="w-5 text-xs font-bold text-muted">{rank}</span>
+            <span className="h-2.5 flex-1 rounded-full bg-line" />
+            <span className="h-2.5 w-12 rounded-full bg-line" />
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
 
 function LifetimeStats({ overview }: { overview: PlayerOverview }) {
   const s = overview.stats;

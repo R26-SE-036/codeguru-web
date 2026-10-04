@@ -53,6 +53,7 @@ import {
 } from '@/components/ui';
 import { CountUp, Reveal } from '@/components/motion';
 import { FillBar, LegendItem, Ring } from '@/components/charts';
+import { ProLock } from '@/components/pro';
 
 /**
  * The progress dashboard.
@@ -195,6 +196,8 @@ export function ProgressView() {
   const [curriculum, setCurriculum] = useState<Curriculum | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // The learning map is Pro; the proxy answers 402 on the Free plan.
+  const [locked, setLocked] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -220,6 +223,10 @@ export function ProgressView() {
         setCurriculum(map.data ?? null);
       } catch (err) {
         if (!live) return;
+        if (err instanceof ApiError && err.needsPro) {
+          setLocked(true);
+          return;
+        }
         setError(
           err instanceof ApiError && err.isUnavailable
             ? 'Your progress is unavailable right now — the study graph could not be reached.'
@@ -324,6 +331,19 @@ export function ProgressView() {
       ),
     [attempts],
   );
+
+  if (locked) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-4">
+        <ProLock
+          title="Your learning map"
+          description="Every concept in the course - mastered, in progress, ready to start - with your quiz history and what is due for review."
+          from="study"
+        />
+        <Link href="/study" className={buttonClass({ variant: 'secondary' })}>Back to Study</Link>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

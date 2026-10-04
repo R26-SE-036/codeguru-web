@@ -26,6 +26,7 @@ import { describeDifficultySource, formatConcept, formatGameType } from '@/lib/v
 import { FormError } from '@/components/field';
 import { Badge, Card, buttonClass } from '@/components/ui';
 import { AchievementTile } from '@/components/arcade';
+import { ProLock } from '@/components/pro';
 
 /**
  * The game machine, the drag-and-drop and the three interactions are the
@@ -349,6 +350,8 @@ export function GamePlayer({
    */
   const [run, setRun] = useState<RunEntry[]>([]);
   const [loadingNext, setLoadingNext] = useState(false);
+  // Free play opened on the Free plan: the proxy refused it with 402.
+  const [needsPro, setNeedsPro] = useState(false);
   const learningSessionId = useRef<string | null>(null);
 
   const dragFrom = useRef<number | null>(null);
@@ -460,6 +463,10 @@ export function GamePlayer({
         dispatch({ type: 'INIT', question });
       } catch (error) {
         if (!live) return;
+        if (error instanceof ApiError && error.needsPro) {
+          setNeedsPro(true);
+          return;
+        }
         dispatch({
           type: 'ERROR',
           message:
@@ -776,6 +783,21 @@ export function GamePlayer({
     } catch {
       dispatch({ type: 'ERROR', message: 'We could not save this attempt. Please try again.' });
     }
+  }
+
+  if (needsPro) {
+    return (
+      <div className="mx-auto max-w-2xl space-y-4">
+        <ProLock
+          title="Free play"
+          description="Any format, any concept, as often as you like. Today's daily challenge is free - you can play it now."
+          from="practice"
+        />
+        <Link href="/play/daily" className={buttonClass({ variant: 'secondary' })}>
+          Play the daily challenge
+        </Link>
+      </div>
+    );
   }
 
   if (state.phase === 'loading' && !state.error) {
