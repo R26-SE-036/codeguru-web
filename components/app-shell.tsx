@@ -118,7 +118,7 @@ export function AppShell({
     .join('');
 
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[264px_1fr]">
+    <div className="min-h-screen lg:grid lg:grid-cols-[264px_1fr] print:block">
       {/*
         Skip link. Visually hidden until focused, which makes it the first stop
         on Tab for a keyboard or screen-reader user and invisible to everyone
@@ -133,7 +133,7 @@ export function AppShell({
       </a>
 
       {/* ── Desktop rail ─────────────────────────────────────────────────── */}
-      <aside className="sticky top-0 hidden h-screen flex-col overflow-hidden border-r border-line bg-card/70 px-4 py-5 backdrop-blur-xl lg:flex">
+      <aside className="sticky top-0 hidden h-screen flex-col overflow-hidden border-r border-line bg-card/70 px-4 py-5 backdrop-blur-xl print:!hidden lg:flex">
         {/* One faint bloom at the top, in the brand's violet, so the rail has
             the same depth as the page beside it. */}
         <div
@@ -194,7 +194,7 @@ export function AppShell({
 
       {/* ── Mobile bar ───────────────────────────────────────────────────── */}
       <div className="flex min-w-0 flex-col">
-        <header className="cg-glass sticky top-0 z-40 flex items-center gap-3 border-b px-4 py-3 lg:hidden">
+        <header className="cg-glass sticky top-0 z-40 flex items-center gap-3 border-b px-4 py-3 print:hidden lg:hidden">
           <button
             ref={openerRef}
             type="button"

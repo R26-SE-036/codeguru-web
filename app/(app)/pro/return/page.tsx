@@ -60,7 +60,7 @@ function Waiting() {
           <Link href="/pair" className={buttonClass({ variant: 'secondary' })}><Users size={15} aria-hidden />Free coding</Link>
           <Link href="/study/progress" className={buttonClass({ variant: 'secondary' })}><BookOpen size={15} aria-hidden />Learning map</Link>
         </div>
-        <Link href="/pro" className="mt-6 inline-block text-sm font-semibold text-accent hover:underline">Manage your plan</Link>
+        <Link href="/billing" className="mt-6 inline-block text-sm font-semibold text-accent hover:underline">Plan &amp; billing</Link>
       </Card>
     );
   }

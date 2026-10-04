@@ -261,7 +261,8 @@ function Hero({
                   about <b className="font-semibold text-ink">{minutes} min</b> of reading
                 </HeroChip>
               )}
-              {reviewDue > 0 && (
+              {/* Review reminders come with the learning map, which is Pro. */}
+              {reviewDue > 0 && !freeLessons && (
                 <HeroChip icon={Repeat2} tone="text-warn">
                   <b className="font-semibold text-ink">{reviewDue}</b> due for review
                 </HeroChip>

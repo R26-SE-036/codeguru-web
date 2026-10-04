@@ -10,15 +10,45 @@ export interface Billing {
     tier: 'free' | 'pro';
     status: 'free' | 'active' | 'cancelled';
     provider: 'payhere' | 'demo' | null;
+    interval: Interval | null;
     renews_at: string | null;
     ends_at: string | null;
     cancel_at_period_end: boolean;
+    /** False once the renewal was stopped at PayHere: it cannot be restarted from here. */
+    can_resume: boolean;
     started_at: string | null;
   };
   price: { amount: number; currency: string; interval: string };
-  free_lessons: { used: number; limit: number; unlocked: Array<{ trigger_id: string }> };
-  payments: Array<{ status: string; provider: string; amount: string | null; currency: string | null; created_at: string }>;
+  prices: { month: number; year: number; currency: string };
+  free_lessons: {
+    /** Opened on Free this month - what counts against the limit. */
+    used: number;
+    limit: number;
+    /** Every lesson opened this month, on either plan. */
+    opened: number;
+    resets_at: string;
+    unlocked: Array<{ trigger_id: string }>;
+  };
+  payments: Payment[];
+  events: Array<{ type: SubscriptionEvent; at: string; interval: Interval | null; provider: string | null; by: string | null }>;
   checkout: { payhere: boolean; demo: boolean; sandbox: boolean };
+}
+
+export type Interval = 'month' | 'year';
+export type SubscriptionEvent = 'upgraded' | 'renewed' | 'cancelled' | 'resumed' | 'downgraded' | 'reset';
+
+export interface Payment {
+  payment_id: string;
+  order_id: string | null;
+  description: string;
+  interval: Interval | null;
+  status: string;
+  provider: 'payhere' | 'demo';
+  provider_payment_id: string | null;
+  method: string | null;
+  amount: string | null;
+  currency: string | null;
+  created_at: string;
 }
 
 /*
@@ -70,4 +100,16 @@ export function usePlan() {
 
 export function formatLkr(amount: number): string {
   return `LKR ${amount.toLocaleString('en-LK')}`;
+}
+
+export function formatDate(iso: string | null | undefined, withYear = true): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString(undefined, withYear
+    ? { day: 'numeric', month: 'long', year: 'numeric' }
+    : { day: 'numeric', month: 'long' });
+}
+
+/** What a yearly plan costs per month, and what it saves against twelve monthly payments. */
+export function yearlySaving(prices: { month: number; year: number }) {
+  return { perMonth: Math.round(prices.year / 12), saved: prices.month * 12 - prices.year };
 }
