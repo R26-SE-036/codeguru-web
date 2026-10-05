@@ -4,12 +4,13 @@
 #   push to main (after they pass)      ->  build the arm64 image, push it to
 #                                           ECR, and roll web on the EC2 host
 #
-# AWS access is OpenID Connect: GitHub proves which repository and branch the
-# run is for, and AWS hands back credentials for about an hour. No access keys
-# are stored here. The role (vars.AWS_DEPLOY_ROLE_ARN) trusts only the main
-# branch of the five Code Guru repositories, and on the host it may run one
-# thing - the codeguru-deploy SSM document, which takes a service name and a
-# commit SHA and nothing else.
+# AWS access is an access key for the codeguru-github-deploy IAM user, kept in
+# the secrets of the "production" environment. That environment accepts only
+# the main branch, so a run on any other branch cannot read the key. (The AWS
+# account's organisation policy blocks the OpenID Connect provider this used
+# before.) The user may push to the codeguru/* image repositories and, on the
+# host, run one thing - the codeguru-deploy SSM document, which takes a service
+# name and a commit SHA and nothing else.
 #
 # What this does NOT deploy: the server's own configuration - deploy/aws's
 # compose file, deploy/Caddyfile, deploy-service.sh and the env files. Those
@@ -25,7 +26,7 @@ on:
   workflow_dispatch:
 
 env:
-  AWS_REGION: ap-south-1
+  AWS_REGION: ap-southeast-2
 
 jobs:
   test:
@@ -50,14 +51,15 @@ jobs:
     # QEMU on x86, since GitHub's arm64 runners are free only for public
     # repositories - `next build` under emulation took most of ten minutes.)
     runs-on: ubuntu-24.04-arm
+    environment: production
     permissions:
-      id-token: write
       contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
       - id: ecr
         uses: aws-actions/amazon-ecr-login@v2
@@ -76,8 +78,8 @@ jobs:
     name: Deploy to AWS
     needs: build
     runs-on: ubuntu-latest
+    environment: production
     permissions:
-      id-token: write
       contents: read
     concurrency:
       group: deploy-web
@@ -87,7 +89,8 @@ jobs:
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
       - name: Roll the service on the server
         run: |

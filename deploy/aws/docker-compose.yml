@@ -1,4 +1,4 @@
-# The whole platform on one EC2 instance (t4g.small, arm64, ap-south-1).
+# The whole platform on one EC2 instance (t4g.small, arm64, ap-southeast-2).
 #
 #   On the server, in the directory holding this file:
 #     docker compose pull
@@ -137,7 +137,7 @@ services:
       # code touches, which needs INTERNAL_SERVICE_KEY - the same value in
       # this env file and Code Coach's.
       CODE_RUNNER_LAMBDA_FUNCTION: "${CODE_RUNNER_LAMBDA_FUNCTION:?}"
-      AWS_REGION: "${AWS_REGION:-ap-south-1}"
+      AWS_REGION: "${AWS_REGION:-ap-southeast-2}"
       CORS_ORIGINS: "${PUBLIC_ORIGIN:?}"
       # One instance, so the in-process cooldown map is the right store.
       REDIS_URL: ""
