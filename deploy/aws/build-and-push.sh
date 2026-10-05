@@ -5,7 +5,7 @@
 #   deploy/aws/build-and-push.sh web code-coach   # just these
 #   TAG=20260916-1200 deploy/aws/build-and-push.sh study-guider
 #
-# Needs Docker Desktop running and an AWS CLI profile (default: codeguru).
+# Needs Docker Desktop running and an AWS CLI profile (default: codeguru3).
 #
 # Built here rather than on the instance: the web app's build needs more memory
 # than a t4g.small has. Docker Desktop emulates arm64, so a first full build is
@@ -15,8 +15,8 @@
 # attestation manifest, and Lambda refuses to create a function from an index.
 set -euo pipefail
 
-export AWS_PROFILE="${AWS_PROFILE:-codeguru}"
-export AWS_REGION="${AWS_REGION:-ap-south-1}"
+export AWS_PROFILE="${AWS_PROFILE:-codeguru3}"
+export AWS_REGION="${AWS_REGION:-ap-southeast-2}"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
