@@ -7,6 +7,8 @@ import { Download, FlaskConical, KeyRound, Loader2, MailCheck, UserRound } from 
 import { ApiError, api } from '@/lib/api';
 import { Field, FormError, FormSuccess } from '@/components/field';
 import { Card, PageHeader, SectionTitle, buttonClass } from '@/components/ui';
+import { ProBadge } from '@/components/pro';
+import { formatDate, usePlan } from '@/lib/use-plan';
 
 interface Me {
   user: { full_name: string; email: string; recovery_email?: string | null };
@@ -213,6 +215,8 @@ export default function AccountPage() {
         </Card>
       </section>
 
+      <PlanSection />
+
       <section>
         <SectionTitle hint="Also receives password-reset links">Recovery email</SectionTitle>
         <Card className="p-6">
@@ -303,5 +307,42 @@ export default function AccountPage() {
         </Card>
       </section>
     </div>
+  );
+}
+
+/** The plan in one line, with the way to billing. */
+function PlanSection() {
+  const { billing } = usePlan();
+  if (!billing) return null;
+  const { plan } = billing;
+  const pro = plan.tier === 'pro';
+  return (
+    <section>
+      <SectionTitle hint={pro ? undefined : 'Upgrade any time'}>Plan</SectionTitle>
+      <Card className="flex flex-wrap items-center justify-between gap-4 p-6">
+        <div>
+          <p className="flex items-center gap-2 font-bold text-ink">
+            {pro ? <>Pro <ProBadge label={plan.interval === 'year' ? 'Yearly' : 'Monthly'} /></> : 'Free'}
+          </p>
+          <p className="mt-0.5 text-sm text-muted">
+            {pro
+              ? plan.cancel_at_period_end
+                ? `Ends on ${formatDate(plan.ends_at)}`
+                : `Renews on ${formatDate(plan.renews_at)}`
+              : `${billing.free_lessons.used} of ${billing.free_lessons.limit} free lessons used this month`}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {!pro && (
+            <Link href="/pro" className={buttonClass({ size: 'sm' })}>
+              Upgrade to Pro
+            </Link>
+          )}
+          <Link href="/billing" className={buttonClass({ variant: 'secondary', size: 'sm' })}>
+            Plan &amp; billing
+          </Link>
+        </div>
+      </Card>
+    </section>
   );
 }

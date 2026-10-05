@@ -17,6 +17,7 @@ import {
 
 import { ApiError, api } from '@/lib/api';
 import { Card, Meter, buttonClass } from '@/components/ui';
+import { ProLock } from '@/components/pro';
 
 /**
  * The quiz is what closes the remediation loop. Two calls follow it, tracked
@@ -69,6 +70,7 @@ export function QuizView({ triggerId }: { triggerId: string }) {
   const [missed, setMissed] = useState<number[]>([]);
   const [finished, setFinished] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [locked, setLocked] = useState<string | null>(null);
 
   const [graphStatus, setGraphStatus] = useState<ReportStatus>('idle');
   const [coachStatus, setCoachStatus] = useState<ReportStatus>('idle');
@@ -125,6 +127,10 @@ export function QuizView({ triggerId }: { triggerId: string }) {
         setQuestions(generated.quiz_data);
       } catch (err) {
         if (!live) return;
+        if (err instanceof ApiError && err.needsPro) {
+          setLocked(err.message);
+          return;
+        }
         setError(
           err instanceof ApiError && err.isUnavailable
             ? 'Study Guider is unavailable right now. Please try again shortly.'
@@ -211,6 +217,15 @@ export function QuizView({ triggerId }: { triggerId: string }) {
         })
         .catch(() => setCoachStatus('failed'));
     }
+  }
+
+  if (locked) {
+    return (
+      <div className="mx-auto max-w-2xl space-y-4">
+        <ProLock title="Unlimited quizzes" description={locked} from="study" />
+        <Link href="/study" className={buttonClass({ variant: 'secondary' })}>Back to Study</Link>
+      </div>
+    );
   }
 
   if (error) {

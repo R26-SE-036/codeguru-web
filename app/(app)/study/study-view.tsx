@@ -7,8 +7,10 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Clock3,
+  Crown,
   LineChart,
   Lightbulb,
+  Lock,
   Map as MapIcon,
   Repeat2,
   Sparkles,
@@ -19,6 +21,7 @@ import { formatConcept, formatErrorType } from '@/lib/vocabulary';
 import { Badge, Card, EmptyState, SectionTitle, Unavailable, buttonClass } from '@/components/ui';
 import { CountUp, Reveal } from '@/components/motion';
 import { LegendItem, Ring } from '@/components/charts';
+import { ProBadge } from '@/components/pro';
 
 /**
  * Study home: the concepts you keep getting wrong, and a lesson for each.
@@ -84,10 +87,13 @@ export function StudyView({
   data,
   curriculum,
   concept,
+  freeLessons = null,
 }: {
   data: { triggers?: Trigger[] } | null;
   curriculum: Curriculum | null;
   concept?: string;
+  /** On the Free plan: this month's lessons used and allowed. Null on Pro. */
+  freeLessons?: { used: number; limit: number } | null;
 }) {
   const triggers = data?.triggers ?? [];
 
@@ -127,6 +133,7 @@ export function StudyView({
         minutes={minutes}
         next={next}
         curriculum={curriculum}
+        freeLessons={freeLessons}
       />
 
       {/*
@@ -198,13 +205,16 @@ function Hero({
   minutes,
   next,
   curriculum,
+  freeLessons,
 }: {
   /** null when Study Guider could not be reached. */
   waiting: number | null;
   minutes: number;
   next: Trigger | null;
   curriculum: Curriculum | null;
+  freeLessons: { used: number; limit: number } | null;
 }) {
+  const freeLeft = freeLessons ? Math.max(0, freeLessons.limit - freeLessons.used) : null;
   const reviewDue = curriculum?.review_due?.length ?? 0;
 
   return (
@@ -251,9 +261,21 @@ function Hero({
                   about <b className="font-semibold text-ink">{minutes} min</b> of reading
                 </HeroChip>
               )}
-              {reviewDue > 0 && (
+              {/* Review reminders come with the learning map, which is Pro. */}
+              {reviewDue > 0 && !freeLessons && (
                 <HeroChip icon={Repeat2} tone="text-warn">
                   <b className="font-semibold text-ink">{reviewDue}</b> due for review
+                </HeroChip>
+              )}
+              {freeLeft !== null && (
+                <HeroChip icon={Crown} tone="text-warn">
+                  <b className="font-semibold text-ink">{freeLeft}</b> of {freeLessons!.limit} free lessons left this month
+                  {freeLeft === 0 && (
+                    <>
+                      {' · '}
+                      <Link href="/pro?from=study" className="font-semibold text-accent hover:underline">Go Pro</Link>
+                    </>
+                  )}
                 </HeroChip>
               )}
             </ul>
@@ -277,7 +299,19 @@ function Hero({
           </div>
         </div>
 
-        {curriculum && curriculum.total > 0 && <MapSummary curriculum={curriculum} />}
+        {curriculum && curriculum.total > 0 && !freeLessons && <MapSummary curriculum={curriculum} />}
+        {freeLessons && (
+          <Link
+            href="/pro?from=study"
+            className="cg-focusable flex w-full max-w-[15rem] flex-col items-center gap-2 rounded-cg-lg border border-hue-play/30 bg-card/80 p-5 text-center backdrop-blur transition hover:border-hue-play/60"
+          >
+            <span className="grid h-12 w-12 place-items-center rounded-full bg-hue-play/15 text-warn">
+              <Lock size={20} strokeWidth={2.3} aria-hidden />
+            </span>
+            <span className="flex items-center gap-1.5 font-bold text-ink">Learning map <ProBadge /></span>
+            <span className="text-xs text-muted">Every concept in the course, and what is due for review.</span>
+          </Link>
+        )}
       </div>
     </Reveal>
   );

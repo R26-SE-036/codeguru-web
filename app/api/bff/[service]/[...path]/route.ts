@@ -19,6 +19,8 @@ import {
   unsealSession,
 } from '@/lib/session';
 import { exchangeForPairPath } from '@/lib/code-coach';
+import { gate, withoutFeedback } from '@/lib/plan-gate';
+import { enforce, forgetPlan, tierFor } from '@/lib/plan';
 import {
   UnsafeUpstreamPathError,
   credentialKind,
@@ -159,6 +161,22 @@ async function proxy(
    */
   const body = hasBody ? await request.arrayBuffer() : undefined;
 
+  /*
+   * ============================ FREE AND PRO ============================
+   * Checked here because this proxy is the only way a browser reaches Study
+   * Guider, the gamification engine and PairPath - see lib/plan-gate.ts. The
+   * plan is always the PLATFORM token's, whichever service this is for.
+   * ======================================================================
+   */
+  const decision = gate(service, method, `/${path.join('/')}`, jsonOf(body));
+  const refusal = await enforce(decision, session.accessToken);
+  if (refusal) {
+    return NextResponse.json(refusal.body, { status: refusal.status });
+  }
+  // Upgrading, cancelling and the return from PayHere all go through Code
+  // Coach's /billing/*; the next gated request must see the new plan.
+  if (service === 'coach' && path[0] === 'billing') forgetPlan(session.accessToken);
+
   const send = (bearer: string) => {
     headers.set('Authorization', `Bearer ${bearer}`);
     return fetch(url, {
@@ -238,7 +256,15 @@ async function proxy(
     }
   });
 
-  const response = new NextResponse(upstream.body, {
+  // A Free student's copy of a pair review loses the after-quiz comparison.
+  let outgoing: BodyInit | null = upstream.body;
+  if (decision.kind === 'strip-feedback' && upstream.ok && (await tierFor(session.accessToken)) === 'free') {
+    const review = await upstream.json().catch(() => null);
+    outgoing = JSON.stringify(withoutFeedback(review));
+    responseHeaders.set('content-type', 'application/json');
+  }
+
+  const response = new NextResponse(outgoing, {
     status: upstream.status,
     statusText: upstream.statusText,
     headers: responseHeaders,
@@ -252,6 +278,16 @@ async function proxy(
   }
 
   return response;
+}
+
+/** A buffered JSON request body, or undefined. Only read by the plan rules. */
+function jsonOf(body: ArrayBuffer | undefined): unknown {
+  if (!body || body.byteLength === 0 || body.byteLength > 1_000_000) return undefined;
+  try {
+    return JSON.parse(new TextDecoder().decode(body));
+  } catch {
+    return undefined;
+  }
 }
 
 export const GET = proxy;

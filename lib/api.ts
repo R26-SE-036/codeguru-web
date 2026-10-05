@@ -34,6 +34,11 @@ export class ApiError extends Error {
     // 504 is the proxy giving up on a backend that did not answer in time.
     return this.status === 503 || this.status === 504 || this.status === 0;
   }
+
+  /** A Pro feature asked for on the Free plan - see lib/plan-gate.ts. */
+  get needsPro(): boolean {
+    return this.status === 402;
+  }
 }
 
 export type Service = 'coach' | 'study' | 'pair' | 'play';

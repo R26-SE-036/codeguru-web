@@ -3,13 +3,15 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ChevronRight, Download, FolderDown, LogOut, Menu, SquareCode, X } from 'lucide-react';
+import { ChevronRight, Crown, Download, FolderDown, LogOut, Menu, SquareCode, X } from 'lucide-react';
 import clsx from 'clsx';
 
 import { SECTIONS, activeSection, type Section } from '@/lib/nav';
 import { signOut } from '@/lib/api';
 import { Brand } from '@/components/brand';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { ProBadge } from '@/components/pro';
+import { usePlan } from '@/lib/use-plan';
 
 /**
  * The platform shell: a rail on desktop, a drawer on mobile.
@@ -116,7 +118,7 @@ export function AppShell({
     .join('');
 
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[264px_1fr]">
+    <div className="min-h-screen lg:grid lg:grid-cols-[264px_1fr] print:block">
       {/*
         Skip link. Visually hidden until focused, which makes it the first stop
         on Tab for a keyboard or screen-reader user and invisible to everyone
@@ -131,7 +133,7 @@ export function AppShell({
       </a>
 
       {/* ── Desktop rail ─────────────────────────────────────────────────── */}
-      <aside className="sticky top-0 hidden h-screen flex-col overflow-hidden border-r border-line bg-card/70 px-4 py-5 backdrop-blur-xl lg:flex">
+      <aside className="sticky top-0 hidden h-screen flex-col overflow-hidden border-r border-line bg-card/70 px-4 py-5 backdrop-blur-xl print:!hidden lg:flex">
         {/* One faint bloom at the top, in the brand's violet, so the rail has
             the same depth as the page beside it. */}
         <div
@@ -150,6 +152,7 @@ export function AppShell({
         </nav>
 
         <div className="relative mt-4 space-y-3">
+          <PlanCard />
           <ExtensionCard />
           <SampleJavaLink />
 
@@ -161,7 +164,10 @@ export function AppShell({
             >
               <Avatar initials={initials} />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-semibold text-ink">{name}</div>
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate text-sm font-semibold text-ink">{name}</span>
+                  <PlanMark />
+                </div>
                 <div className="truncate text-xs text-muted">{email}</div>
               </div>
               <ChevronRight
@@ -188,7 +194,7 @@ export function AppShell({
 
       {/* ── Mobile bar ───────────────────────────────────────────────────── */}
       <div className="flex min-w-0 flex-col">
-        <header className="cg-glass sticky top-0 z-40 flex items-center gap-3 border-b px-4 py-3 lg:hidden">
+        <header className="cg-glass sticky top-0 z-40 flex items-center gap-3 border-b px-4 py-3 print:hidden lg:hidden">
           <button
             ref={openerRef}
             type="button"
@@ -262,6 +268,7 @@ export function AppShell({
             </nav>
 
             <div className="space-y-3 border-t border-line pt-4">
+              <PlanCard />
               <ExtensionCard />
               <SampleJavaLink />
               <Link
@@ -270,7 +277,10 @@ export function AppShell({
               >
                 <Avatar initials={initials} />
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-ink">{name}</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate text-sm font-semibold text-ink">{name}</span>
+                    <PlanMark />
+                  </div>
                   <div className="truncate text-xs text-muted">{email}</div>
                 </div>
               </Link>
@@ -406,6 +416,36 @@ function NavLink({
  * until it is installed - it is the one link in the rail a new student most
  * needs to notice.
  */
+/**
+ * The upgrade, for a Free student - one compact row, because this column is
+ * already the tightest space in the app. Pro students get the badge by their
+ * name instead (PlanMark) and nothing here.
+ */
+function PlanCard() {
+  const { isFree } = usePlan();
+  if (!isFree) return null;
+  return (
+    <Link
+      href="/pro"
+      className="cg-focusable group relative flex items-center gap-3 overflow-hidden rounded-cg-lg border border-hue-play/30 bg-gradient-to-r from-hue-play/15 to-transparent p-2.5 transition hover:border-hue-play/60"
+    >
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-cg-sm bg-hue-play/20 text-warn">
+        <Crown size={15} strokeWidth={2.3} aria-hidden />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-bold text-ink">Go Pro</span>
+        <span className="block truncate text-xs text-muted">Unlimited lessons, free play</span>
+      </span>
+      <ChevronRight size={15} aria-hidden className="shrink-0 text-muted transition-transform duration-200 ease-cg group-hover:translate-x-0.5" />
+    </Link>
+  );
+}
+
+function PlanMark() {
+  const { isPro } = usePlan();
+  return isPro ? <ProBadge className="shrink-0" /> : null;
+}
+
 function ExtensionCard() {
   return (
     <a

@@ -25,6 +25,7 @@ import { Badge, Card, PageHeader, buttonClass } from '@/components/ui';
 import { CodePanel } from './code-panel';
 import { Feedback, ReviewFeedback, encouragement } from './feedback';
 import { Inline } from './inline';
+import { ProLock } from '@/components/pro';
 
 /**
  * The review after a session: a short walkthrough of the student's own code.
@@ -79,6 +80,8 @@ interface Review {
   solution?: { code: string; note: string | null } | null;
   /** After the quiz only. */
   feedback?: Feedback | null;
+  /** On the Free plan the proxy removes the comparison and sets this. */
+  feedbackLocked?: boolean;
 }
 
 interface Submitted {
@@ -86,6 +89,7 @@ interface Submitted {
   outOf: number;
   solution: { code: string; note: string | null } | null;
   feedback: Feedback | null;
+  feedbackLocked?: boolean;
 }
 
 const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
@@ -382,13 +386,14 @@ export function ReviewView({ sessionId }: { sessionId: string }) {
   const free = review.kind === 'FREE';
   const solution = submitted ? submitted.solution : (review.solution ?? null);
   const feedback = submitted ? submitted.feedback : (review.feedback ?? null);
+  const feedbackLocked = Boolean(submitted ? submitted.feedbackLocked : review.feedbackLocked);
   const cheer = encouragement(feedback?.outcome ?? (free ? 'free' : undefined), feedback?.improvements.length ?? 0);
   const score = submitted?.score ?? Object.values(marks).filter((m) => m.step < steps.length && m.correct).length;
   const outOf = submitted?.outOf ?? steps.length;
 
   return (
     // Wider once finished: the comparison puts two programs side by side.
-    <div className={clsx('mx-auto space-y-6', done && solution ? 'max-w-5xl' : 'max-w-3xl')}>
+    <div className={clsx('mx-auto space-y-6', done && solution && !feedbackLocked ? 'max-w-5xl' : 'max-w-3xl')}>
       <PageHeader
         eyebrow={pair ? 'Pair session review' : 'Session review'}
         title={review.title ?? 'Looking back at your session'}
@@ -445,7 +450,38 @@ export function ReviewView({ sessionId }: { sessionId: string }) {
             )}
           </Card>
 
-          <ReviewFeedback code={review.code ?? ''} solution={solution} feedback={feedback} />
+          {feedbackLocked ? (
+            <>
+              {/* Free: the model solution as it always was, and the comparison behind a lock. */}
+              {solution && solution.code.trim() && (
+                <section className="space-y-3 animate-cg-rise">
+                  <div>
+                    <h2 className="flex items-center gap-2 text-lg font-bold text-ink">
+                      <BookOpen size={18} strokeWidth={2.2} className="text-ok" aria-hidden />
+                      The model solution
+                    </h2>
+                    {solution.note && (
+                      <p className="mt-1 text-body">
+                        <Inline text={solution.note} />
+                      </p>
+                    )}
+                  </div>
+                  <CodePanel code={solution.code} label="Model solution" tone="ok" />
+                </section>
+              )}
+              <ProLock
+                title={free ? 'What worked, and what to improve' : 'Your path to the solution'}
+                description={
+                  free
+                    ? 'See what you did well, two improvements to your own code, and an exercise to try next.'
+                    : 'See your code side by side with the model solution, what you did well, and the exact changes that would have got you there.'
+                }
+                from="pair-review"
+              />
+            </>
+          ) : (
+            <ReviewFeedback code={review.code ?? ''} solution={solution} feedback={feedback} />
+          )}
 
           <div className="flex flex-wrap gap-3">
             <Link href={`/pair/${sessionId}/results`} className={buttonClass({ size: 'lg' })}>

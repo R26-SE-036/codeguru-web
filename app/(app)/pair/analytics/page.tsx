@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { BarChart3, Bot, Loader2 } from 'lucide-react';
 
 import { ApiError, api } from '@/lib/api';
@@ -17,7 +18,8 @@ import {
   type Prediction,
   type SessionEvent,
 } from '@/lib/pair-events';
-import { Badge, Card, EmptyState, PageHeader, Unavailable } from '@/components/ui';
+import { Badge, Card, EmptyState, PageHeader, Unavailable, buttonClass } from '@/components/ui';
+import { ProLock } from '@/components/pro';
 
 /**
  * How the classifier read a session, minute by minute.
@@ -78,6 +80,8 @@ export default function AnalyticsPage() {
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [effect, setEffect] = useState<NudgeEffect | null>(null);
+  // Pair analytics are Pro; the proxy answers 402 on the Free plan.
+  const [locked, setLocked] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -86,6 +90,7 @@ export default function AnalyticsPage() {
       .then((data) => live && setSessions(data))
       .catch((err) => {
         if (!live) return;
+        if (err instanceof ApiError && err.needsPro) setLocked(true);
         setUnavailable(err instanceof ApiError && err.isUnavailable);
         setSessions([]);
       });
@@ -113,6 +118,19 @@ export default function AnalyticsPage() {
       setLoadingDetail(false);
     }
   }, []);
+
+  if (locked) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-4">
+        <ProLock
+          title="Pair analytics"
+          description="Every prediction the collaboration model made about your sessions, on a timeline with what you and your partner were doing - and whether the nudges helped."
+          from="pair-analytics"
+        />
+        <Link href="/pair" className={buttonClass({ variant: 'secondary' })}>Back to pairing</Link>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">

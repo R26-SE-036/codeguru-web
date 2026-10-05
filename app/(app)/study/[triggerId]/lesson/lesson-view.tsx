@@ -21,6 +21,7 @@ import { ApiError, api } from '@/lib/api';
 import { flowPath } from '@/lib/flowchart';
 import { formatConcept } from '@/lib/vocabulary';
 import { Badge, Card, buttonClass } from '@/components/ui';
+import { ProLock } from '@/components/pro';
 
 import FlowSteps from './flow-steps';
 
@@ -182,6 +183,8 @@ export function LessonView({ triggerId }: { triggerId: string }) {
   const [exampleIsGeneric, setExampleIsGeneric] = useState(false);
   const [cognitiveState, setCognitiveState] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // This month's free lessons are used up: the proxy's 402, in its own words.
+  const [locked, setLocked] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const flowSteps = useMemo(() => flowPath(lesson?.mermaidDiagram), [lesson?.mermaidDiagram]);
 
@@ -241,6 +244,11 @@ export function LessonView({ triggerId }: { triggerId: string }) {
           .catch((err) => console.warn('Could not report lesson-opened:', err));
       } catch (err) {
         if (!live) return;
+        if (err instanceof ApiError && err.needsPro) {
+          setLocked(err.message);
+          setLoading(false);
+          return;
+        }
         setError(
           err instanceof ApiError && err.isUnavailable
             ? 'Lessons are unavailable right now. Please try again shortly.'
@@ -285,6 +293,15 @@ export function LessonView({ triggerId }: { triggerId: string }) {
             <div className="cg-skeleton h-3 w-4/5" />
           </div>
         </Card>
+      </div>
+    );
+  }
+
+  if (locked) {
+    return (
+      <div className="mx-auto max-w-2xl space-y-4">
+        <ProLock title="Unlimited lessons" description={locked} from="study" />
+        <Link href="/study" className={buttonClass({ variant: 'secondary' })}>Back to Study</Link>
       </div>
     );
   }

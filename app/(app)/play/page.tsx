@@ -14,7 +14,7 @@ export default async function PlayPage() {
   const session = await getSession();
   const firstName = session?.user.full_name?.trim().split(/\s+/)[0] ?? 'Player';
 
-  const [overview, recs, history, catalog] = await Promise.all([
+  const [overview, recs, history, catalog, billing] = await Promise.all([
     // The reward loop: level, streak, quests, achievements, daily challenge.
     serverFetch<PlayerOverview>('play', '/me/overview', session),
     serverFetch<{ recommendations?: Recommendation[] }>(
@@ -31,6 +31,8 @@ export default async function PlayPage() {
      */
     serverFetch<{ success: boolean; data?: GameSummary[] }>('study', '/games/me?limit=8', session),
     serverFetch<{ formats?: Catalog }>('play', '/catalog', session),
+    // Free or Pro. Unknown counts as Pro, as it does in the proxy (lib/plan.ts).
+    serverFetch<{ plan: { tier: 'free' | 'pro' } }>('coach', '/billing/me', session),
   ]);
 
   return (
@@ -41,6 +43,7 @@ export default async function PlayPage() {
       recommendationsLoaded={recs !== null}
       rounds={history?.success ? (history.data ?? []) : null}
       catalog={catalog?.formats ?? null}
+      free={billing?.plan.tier === 'free'}
     />
   );
 }
