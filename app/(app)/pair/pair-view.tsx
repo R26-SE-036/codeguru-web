@@ -429,7 +429,17 @@ export function PairView({ userId }: { userId: string }) {
     }
     api
       .get<Question[]>('pair', `/questions/topic/${topicId}`)
-      .then(setQuestions)
+      // Gentlest first - beginner, intermediate, advanced - as the API keeps
+      // no order of its own.
+      .then((list) =>
+        setQuestions(
+          [...list].sort(
+            (a, b) =>
+              (DIFFICULTY_RANK[a.difficulty ?? ''] ?? 9) - (DIFFICULTY_RANK[b.difficulty ?? ''] ?? 9) ||
+              a.title.localeCompare(b.title),
+          ),
+        ),
+      )
       .catch(() => setQuestions([]));
   }, [topicId]);
 
