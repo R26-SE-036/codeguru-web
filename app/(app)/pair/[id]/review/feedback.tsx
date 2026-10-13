@@ -26,7 +26,7 @@ import { CodePanel } from './code-panel';
 import { Inline } from './inline';
 
 /**
- * What a review shows once the questions are done - the part the professor's
+ * What a review opens with, before the quiz - the part the professor's
  * evaluation asked for: their code against the model solution, and "if you had
  * done this, you would have achieved that".
  *

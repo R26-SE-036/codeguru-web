@@ -16,7 +16,7 @@
  *   Practice   Free plays the daily challenge; free play, the leaderboard and
  *              its settings are Pro.
  *   Pair       Free runs exercise sessions and the review quiz; free coding,
- *              the comparison after the quiz, and analytics are Pro.
+ *              the comparison before the quiz, and analytics are Pro.
  *   Code Coach everything stays free, the VS Code extension included.
  */
 
@@ -39,7 +39,7 @@ export type GateDecision =
   | { kind: 'lesson'; triggerId: string; errorType: string | null; conceptTag: string | null }
   /** A lesson's quiz: allowed for a lesson the student opened this month. */
   | { kind: 'quiz'; errorType: string | null }
-  /** Allowed, but a Free student's copy has the after-quiz comparison removed. */
+  /** Allowed, but a Free student's copy has the comparison removed. */
   | { kind: 'strip-feedback' };
 
 const ALLOW: GateDecision = { kind: 'allow' };

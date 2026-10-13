@@ -28,19 +28,24 @@ import { Inline } from './inline';
 import { ProLock } from '@/components/pro';
 
 /**
- * The review after a session: a short walkthrough of the student's own code.
+ * The review after a session, in two parts: feedback first, then a quiz.
  *
  * Written for this session by the same model as the Study lessons - see
- * PairPath's ReviewsService. Each step teaches one idea, with the lines it is
- * about lit up in the code above, then asks one multiple-choice question. The
- * answer is marked straight away with an explanation, and locked. A pair gets
- * a question or two about how they worked together at the end; those have no
- * right answer and are not scored.
+ * PairPath's ReviewsService.
  *
- * Once the review is finished: their code beside the model solution, what
- * they did well, and the path from their code to a working one - see
- * feedback.tsx. A free-coding session has no model solution, so it gets
- * improvements and a suggested exercise instead.
+ *   1. Feedback: their code beside the model solution, what they did well,
+ *      and the path from their code to a working one - see feedback.tsx. A
+ *      free-coding session has no model solution, so it gets improvements and
+ *      a suggested exercise instead.
+ *   2. Quiz: each step teaches one idea, with the lines it is about lit up in
+ *      their code, then asks one multiple-choice question that checks they
+ *      understood the feedback. The answer is marked straight away with an
+ *      explanation, and locked. A pair gets a question or two about how they
+ *      worked together at the end; those have no right answer and are not
+ *      scored.
+ *
+ * A reload resumes in the quiz once a question has been answered, and on the
+ * feedback otherwise.
  *
  * Partners answer on their own screens. They get the same questions, and how
  * often they agree is on the results page.
@@ -78,7 +83,7 @@ interface Review {
   reflection?: { prompt: string; options: string[] }[];
   answers?: Marked[];
   solution?: { code: string; note: string | null } | null;
-  /** After the quiz only. */
+  /** Shown before the quiz. */
   feedback?: Feedback | null;
   /** On the Free plan the proxy removes the comparison and sets this. */
   feedbackLocked?: boolean;
@@ -199,6 +204,55 @@ function Progress({
   );
 }
 
+/** The two parts of a review - read the feedback, then take the quiz - as tabs. */
+function Parts({
+  phase,
+  onFeedback,
+  onQuiz,
+}: {
+  phase: 'feedback' | 'quiz';
+  onFeedback: () => void;
+  onQuiz: () => void;
+}) {
+  const items = [
+    { key: 'feedback' as const, label: 'Feedback', hint: 'Your code and the solution', onClick: onFeedback },
+    { key: 'quiz' as const, label: 'Quiz', hint: 'Check what you learned', onClick: onQuiz },
+  ];
+  return (
+    <nav aria-label="Review parts" className="grid grid-cols-2 gap-2 rounded-cg-lg border border-line bg-card p-1.5">
+      {items.map((item, index) => {
+        const active = phase === item.key;
+        return (
+          <button
+            key={item.key}
+            type="button"
+            onClick={item.onClick}
+            aria-current={active ? 'step' : undefined}
+            className={clsx(
+              'cg-focusable flex items-center gap-3 rounded-cg px-3 py-2.5 text-left transition',
+              active ? 'bg-hue-pair/10 ring-1 ring-hue-pair/30' : 'hover:bg-card-alt',
+            )}
+          >
+            <span
+              aria-hidden
+              className={clsx(
+                'grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-bold',
+                active ? 'bg-hue-pair text-on-accent' : 'bg-card-alt text-muted ring-1 ring-line',
+              )}
+            >
+              {index + 1}
+            </span>
+            <span className="min-w-0">
+              <span className={clsx('block text-sm font-bold', active ? 'text-ink' : 'text-body')}>{item.label}</span>
+              <span className="block truncate text-xs text-muted">{item.hint}</span>
+            </span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
 export function ReviewView({ sessionId }: { sessionId: string }) {
   const [review, setReview] = useState<Review | null>(null);
   const [marks, setMarks] = useState<Record<number, Marked>>({});
@@ -207,6 +261,8 @@ export function ReviewView({ sessionId }: { sessionId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Feedback first, then the quiz.
+  const [phase, setPhase] = useState<'feedback' | 'quiz'>('feedback');
   const startedAt = useRef(Date.now());
   const stepRef = useRef<HTMLDivElement>(null);
 
@@ -221,6 +277,8 @@ export function ReviewView({ sessionId }: { sessionId: string }) {
         const steps = data.steps?.length ?? 0;
         const next = Array.from({ length: steps }, (_, i) => i).find((i) => !given[i]);
         setCurrent(next ?? steps);
+        // Somebody who has started the quiz has read the feedback already.
+        if (Object.keys(given).length > 0) setPhase('quiz');
       }
       return data;
     } catch (err) {
@@ -263,6 +321,18 @@ export function ReviewView({ sessionId }: { sessionId: string }) {
   const onReflection = current >= steps.length;
   const step = onReflection ? null : steps[current];
   const mark = marks[current];
+
+  function startQuiz() {
+    setError(null);
+    setPhase('quiz');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function backToFeedback() {
+    setError(null);
+    setPhase('feedback');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
 
   function go(index: number) {
     setError(null);
@@ -391,9 +461,60 @@ export function ReviewView({ sessionId }: { sessionId: string }) {
   const score = submitted?.score ?? Object.values(marks).filter((m) => m.step < steps.length && m.correct).length;
   const outOf = submitted?.outOf ?? steps.length;
 
+  const hasQuiz = steps.length > 0 || hasReflection;
+  const solutionShown = Boolean(solution && solution.code.trim());
+  const hasFeedback =
+    feedbackLocked ||
+    solutionShown ||
+    Boolean(
+      feedback &&
+        (feedback.strengths.length || feedback.improvements.length || feedback.nextStep || feedback.suggestion),
+    ) ||
+    (free && Boolean(review.code?.trim()));
+  // Nothing to read first (an older review with no feedback): straight to the quiz.
+  const onFeedback = !done && phase === 'feedback' && hasFeedback;
+
+  const feedbackBlock = feedbackLocked ? (
+    <>
+      {/* Free: the model solution as it always was, and the comparison behind a lock. */}
+      {solution && solutionShown && (
+        <section className="space-y-3 animate-cg-rise">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-bold text-ink">
+              <BookOpen size={18} strokeWidth={2.2} className="text-ok" aria-hidden />
+              The model solution
+            </h2>
+            {solution.note && (
+              <p className="mt-1 text-body">
+                <Inline text={solution.note} />
+              </p>
+            )}
+          </div>
+          <CodePanel code={solution.code} label="Model solution" tone="ok" />
+        </section>
+      )}
+      <ProLock
+        title={free ? 'What worked, and what to improve' : 'Your path to the solution'}
+        description={
+          free
+            ? 'See what you did well, two improvements to your own code, and an exercise to try next.'
+            : 'See your code side by side with the model solution, what you did well, and the exact changes that would have got you there.'
+        }
+        from="pair-review"
+      />
+    </>
+  ) : (
+    <ReviewFeedback code={review.code ?? ''} solution={solution} feedback={feedback} />
+  );
+
   return (
-    // Wider once finished: the comparison puts two programs side by side.
-    <div className={clsx('mx-auto space-y-6', done && solution && !feedbackLocked ? 'max-w-5xl' : 'max-w-3xl')}>
+    // Wider while the comparison is on screen: it puts two programs side by side.
+    <div
+      className={clsx(
+        'mx-auto space-y-6',
+        (done || onFeedback) && solutionShown && !feedbackLocked ? 'max-w-5xl' : 'max-w-3xl',
+      )}
+    >
       <PageHeader
         eyebrow={pair ? 'Pair session review' : 'Session review'}
         title={review.title ?? 'Looking back at your session'}
@@ -423,8 +544,12 @@ export function ReviewView({ sessionId }: { sessionId: string }) {
         )}
       </div>
 
-      {/* Once finished, the code moves into the comparison below. */}
-      {!done && (
+      {!done && hasFeedback && hasQuiz && (
+        <Parts phase={onFeedback ? 'feedback' : 'quiz'} onFeedback={backToFeedback} onQuiz={startQuiz} />
+      )}
+
+      {/* In the quiz, their code on its own for the highlights; the comparison has it otherwise. */}
+      {!done && !onFeedback && (
         <CodePanel code={review.code ?? ''} highlight={step ? step.lines : null} label="Your final code" />
       )}
 
@@ -450,38 +575,7 @@ export function ReviewView({ sessionId }: { sessionId: string }) {
             )}
           </Card>
 
-          {feedbackLocked ? (
-            <>
-              {/* Free: the model solution as it always was, and the comparison behind a lock. */}
-              {solution && solution.code.trim() && (
-                <section className="space-y-3 animate-cg-rise">
-                  <div>
-                    <h2 className="flex items-center gap-2 text-lg font-bold text-ink">
-                      <BookOpen size={18} strokeWidth={2.2} className="text-ok" aria-hidden />
-                      The model solution
-                    </h2>
-                    {solution.note && (
-                      <p className="mt-1 text-body">
-                        <Inline text={solution.note} />
-                      </p>
-                    )}
-                  </div>
-                  <CodePanel code={solution.code} label="Model solution" tone="ok" />
-                </section>
-              )}
-              <ProLock
-                title={free ? 'What worked, and what to improve' : 'Your path to the solution'}
-                description={
-                  free
-                    ? 'See what you did well, two improvements to your own code, and an exercise to try next.'
-                    : 'See your code side by side with the model solution, what you did well, and the exact changes that would have got you there.'
-                }
-                from="pair-review"
-              />
-            </>
-          ) : (
-            <ReviewFeedback code={review.code ?? ''} solution={solution} feedback={feedback} />
-          )}
+          {feedbackBlock}
 
           <div className="flex flex-wrap gap-3">
             <Link href={`/pair/${sessionId}/results`} className={buttonClass({ size: 'lg' })}>
@@ -492,6 +586,47 @@ export function ReviewView({ sessionId }: { sessionId: string }) {
               Back to pairing
             </Link>
           </div>
+        </>
+      ) : onFeedback ? (
+        <>
+          {cheer && (
+            <p className="flex gap-2.5 rounded-cg border border-hue-pair/25 bg-hue-pair/5 px-4 py-3 text-body animate-cg-rise">
+              <Sparkles size={18} strokeWidth={2.2} className="mt-0.5 shrink-0 text-hue-pair" aria-hidden />
+              <span>{cheer}</span>
+            </p>
+          )}
+
+          {feedbackBlock}
+
+          <Card className="flex flex-wrap items-center justify-between gap-4 p-6 animate-cg-rise">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold uppercase tracking-wider text-hue-pair">
+                {hasQuiz ? 'Next: the quiz' : 'All done'}
+              </p>
+              <p className="mt-1 text-body">
+                {steps.length > 0
+                  ? `${steps.length} short question${steps.length === 1 ? '' : 's'} to check what you took from this feedback${
+                      hasReflection ? ', then a moment on how you worked together' : ''
+                    }.`
+                  : hasReflection
+                    ? 'A moment on how you worked together. There are no right answers.'
+                    : 'There are no questions for this session.'}
+              </p>
+            </div>
+            {hasQuiz ? (
+              <button type="button" onClick={startQuiz} className={buttonClass({ size: 'lg' })}>
+                Start the quiz
+                <ArrowRight size={17} strokeWidth={2.3} aria-hidden />
+              </button>
+            ) : (
+              <button type="button" onClick={finish} disabled={busy} className={buttonClass({ size: 'lg' })}>
+                {busy ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <CircleCheck size={16} aria-hidden />}
+                Finish review
+              </button>
+            )}
+          </Card>
+
+          {error && <FormError>{error}</FormError>}
         </>
       ) : (
         <div ref={stepRef} className="scroll-mt-24 space-y-4">
