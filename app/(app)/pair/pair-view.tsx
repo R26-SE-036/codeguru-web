@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
   BarChart3,
-  BrainCircuit,
   Crown,
   FileCode2,
   FlaskConical,
@@ -494,13 +493,6 @@ export function PairView({ userId }: { userId: string }) {
             >
               <BarChart3 size={14} strokeWidth={2.2} aria-hidden />
               Analytics
-            </Link>
-            <Link
-              href="/pair/sandbox"
-              className={buttonClass({ variant: 'secondary', size: 'sm' })}
-            >
-              <BrainCircuit size={14} strokeWidth={2.2} aria-hidden />
-              Model sandbox
             </Link>
           </div>
         }
