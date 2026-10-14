@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
   BarChart3,
-  BrainCircuit,
   Crown,
   FileCode2,
   FlaskConical,
@@ -430,7 +429,17 @@ export function PairView({ userId }: { userId: string }) {
     }
     api
       .get<Question[]>('pair', `/questions/topic/${topicId}`)
-      .then(setQuestions)
+      // Gentlest first - beginner, intermediate, advanced - as the API keeps
+      // no order of its own.
+      .then((list) =>
+        setQuestions(
+          [...list].sort(
+            (a, b) =>
+              (DIFFICULTY_RANK[a.difficulty ?? ''] ?? 9) - (DIFFICULTY_RANK[b.difficulty ?? ''] ?? 9) ||
+              a.title.localeCompare(b.title),
+          ),
+        ),
+      )
       .catch(() => setQuestions([]));
   }, [topicId]);
 
@@ -494,13 +503,6 @@ export function PairView({ userId }: { userId: string }) {
             >
               <BarChart3 size={14} strokeWidth={2.2} aria-hidden />
               Analytics
-            </Link>
-            <Link
-              href="/pair/sandbox"
-              className={buttonClass({ variant: 'secondary', size: 'sm' })}
-            >
-              <BrainCircuit size={14} strokeWidth={2.2} aria-hidden />
-              Model sandbox
             </Link>
           </div>
         }

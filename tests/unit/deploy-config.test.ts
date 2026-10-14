@@ -22,12 +22,16 @@ const read = (relative: string) => readFileSync(path(relative), 'utf-8').replace
 const compose = read('deploy/docker-compose.yml');
 const caddyfile = read('deploy/Caddyfile');
 const dockerfile = read('Dockerfile');
-const envExample = Object.fromEntries(
-  read('deploy/.env.example')
-    .split('\n')
-    .filter((line) => /^[A-Z_]+=/.test(line))
-    .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1).trim()]),
-);
+const readEnv = (relative: string): Record<string, string> =>
+  Object.fromEntries(
+    read(relative)
+      .split('\n')
+      .filter((line) => /^[A-Z_]+=/.test(line))
+      .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1).trim()]),
+  );
+const envExample = readEnv('deploy/.env.example');
+// The live server's values - what a student's extension talks to.
+const awsEnvExample = readEnv('deploy/aws/.env.example');
 
 /** Each service's block of compose text, by name. */
 const services: Record<string, string> = (() => {
@@ -155,13 +159,17 @@ describe('the example environment', () => {
 
   const extensionManifest = path('../code-coach/extension/code-coach-vscode/package.json');
 
+  // The published extension is for students, so its defaults are the live
+  // server, not this laptop stack; a developer points it at localhost in
+  // their own settings.
   it.skipIf(!existsSync(extensionManifest))(
-    'is where the VS Code extension signs in and sends its requests by default',
+    'the VS Code extension signs in and sends its requests to the live server by default',
     () => {
       const properties = JSON.parse(readFileSync(extensionManifest, 'utf-8')).contributes.configuration.properties;
 
-      expect(properties['codeCoach.portalUrl'].default).toBe(envExample.PUBLIC_ORIGIN);
-      expect(properties['codeCoach.backendUrl'].default).toBe(envExample.PUBLIC_ORIGIN);
+      expect(awsEnvExample.PUBLIC_ORIGIN).toMatch(/^https:\/\//);
+      expect(properties['codeCoach.portalUrl'].default).toBe(awsEnvExample.PUBLIC_ORIGIN);
+      expect(properties['codeCoach.backendUrl'].default).toBe(awsEnvExample.PUBLIC_ORIGIN);
     },
   );
 });

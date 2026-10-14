@@ -17,7 +17,6 @@ import {
   Play,
   RefreshCw,
   SendHorizonal,
-  Sparkles,
   Terminal,
   TriangleAlert,
   Users,
@@ -29,6 +28,22 @@ import { FREE_STARTER_CODE, isFreeSession, sessionTitle } from '@/lib/pair-sessi
 import { usePairSocket } from '@/lib/use-pair-socket';
 import { useMonacoTheme } from '@/lib/theme';
 import { Badge, Card, buttonClass } from '@/components/ui';
+
+import { EnginePanel, type PredictionReport, type PresenterSettings } from './engine-panel';
+import {
+  AttentionDot,
+  type Delivery,
+  type Intervention,
+  NudgeCard,
+  NudgeHistory,
+  NudgeToast,
+  type PastNudge,
+  type RagHint,
+  nudgeColour,
+  playChime,
+  useNudgeSound,
+  useTitleAlert,
+} from './nudges';
 
 // Monaco pulls in a large editor bundle and touches `window` on import.
 // Client-only, and code-split so it does not weigh on any other route.
@@ -118,35 +133,6 @@ interface RunResult {
   correct?: boolean | null;
 }
 
-/**
- * Where to draw attention, and how. Never solution content - that constraint
- * is what lets an intervention fire without giving the exercise away.
- */
-interface Delivery {
-  type?: string;
-  uiTarget?: 'toast' | 'role_switch_button' | 'chat_input' | 'discussion_panel' | 'hint_panel' | 'none';
-  uiEffect?: 'toast' | 'glow' | 'pulse' | 'highlight' | 'none';
-  message?: string;
-  audience?: 'pair' | 'driver' | 'navigator';
-  autoDismissMs?: number;
-}
-
-interface Intervention {
-  id: string;
-  state?: string;
-  action?: string;
-  delivery?: Delivery;
-}
-
-/** The three-part scaffolded hint. Written by hand into the corpus, never generated. */
-interface RagHint {
-  conceptReminder: string;
-  exampleIdea: string;
-  reflectiveQuestion: string;
-  retrievedConcepts?: string[];
-  fallbackUsed?: boolean;
-}
-
 type Roles = Record<string, string>;
 
 /** A line the navigator is pointing at. `at` is when it arrived, for the glow. */
@@ -165,19 +151,6 @@ type MonacoApi = Parameters<OnMount>[1];
  */
 const POINTER_GLOW_MS = 3300;
 
-/**
- * uiEffect -> what it looks like.
- *
- * Deliberately a ring rather than a colour change: the effect has to read as
- * "look here" on a control that already has a meaning, without recolouring it
- * into something that looks like a different button.
- */
-const EFFECT_CLASS: Record<string, string> = {
-  glow: 'ring-2 ring-accent/60 ring-offset-2 ring-offset-page',
-  pulse: 'ring-2 ring-accent/60 ring-offset-2 ring-offset-page animate-pulse',
-  highlight: 'ring-2 ring-warn/60 ring-offset-2 ring-offset-page',
-};
-
 const DEFAULT_TOAST_MS = 4000;
 
 export function Workspace({ sessionId, userId }: { sessionId: string; userId: string }) {
@@ -195,6 +168,18 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
   const [result, setResult] = useState<RunResult | null>(null);
   const [intervention, setIntervention] = useState<Intervention | null>(null);
   const [hint, setHint] = useState<RagHint | null>(null);
+  // Every nudge this session, newest first, for the Nudges list.
+  const [pastNudges, setPastNudges] = useState<PastNudge[]>([]);
+  const [sound, toggleSound] = useNudgeSound();
+  // Read by the socket handler, which is registered once.
+  const soundOn = useRef(sound);
+  soundOn.current = sound;
+
+  // Presenter mode (?presenter=1) - see engine-panel.tsx.
+  const [presenter, setPresenter] = useState<PresenterSettings | null>(null);
+  const [reports, setReports] = useState<PredictionReport[]>([]);
+  const presenterWanted = useRef(false);
+  const presenterAsked = useRef(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [pointer, setPointer] = useState<Pointer | null>(null);
 
@@ -291,10 +276,33 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
           );
         }
       },
-      intervention: (data: Intervention) => setIntervention(data),
+      intervention: (data: Intervention) => {
+        setIntervention(data);
+        // A struggle's hint follows it; the last one is about another moment.
+        if (data.state === 'LOGIC_STRUGGLE') setHint(null);
+        setPastNudges((previous) =>
+          [
+            {
+              id: data.id,
+              state: data.state,
+              message: data.delivery?.message ?? '',
+              at: Date.now(),
+              replay: data.replay,
+            },
+            ...previous,
+          ].slice(0, 50),
+        );
+        // Praise stays quiet; anything asking something of the pair chimes.
+        if (soundOn.current && data.delivery?.uiEffect !== 'toast') playChime('nudge');
+      },
       // A hint accompanies a logic struggle. It arrives separately from the
       // intervention that triggered it, and after it.
       rag_hint: (data: RagHint) => setHint(data),
+      presenter_mode: (data: PresenterSettings) => {
+        setPresenter(data?.on ? data : null);
+        if (!data?.on && data?.message) setNotice(data.message);
+      },
+      ml_prediction: (report: PredictionReport) => setReports((previous) => [report, ...previous].slice(0, 60)),
       // The server refused something the client thought it could do - the two
       // views of the roles have drifted. Saying so beats typing into a void.
       edit_rejected: (data: { message?: string }) => setNotice(data?.message ?? null),
@@ -379,6 +387,27 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
     );
     return () => clearTimeout(timer);
   }, [intervention]);
+
+  // ?presenter=1 asks for presenter mode. Read from the address once.
+  useEffect(() => {
+    presenterWanted.current = new URLSearchParams(window.location.search).get('presenter') === '1';
+  }, []);
+
+  /*
+   * Asked for once the room has this student in it - the gateway ignores a
+   * socket that has not finished joining - and again after a reconnect, since
+   * the mode ends when the room empties.
+   */
+  useEffect(() => {
+    if (status !== 'connected') {
+      presenterAsked.current = false;
+      return;
+    }
+    if (presenterWanted.current && !presenterAsked.current && members.includes(userId)) {
+      presenterAsked.current = true;
+      socket.current?.emit('presenter_mode', { sessionId, on: true });
+    }
+  }, [status, members, userId, sessionId, socket]);
 
   /** A rejection explains one action; it should not sit on screen afterwards. */
   useEffect(() => {
@@ -506,14 +535,21 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
     setDraft('');
   }
 
-  /** The effect classes for one target, when the live intervention names it. */
-  const effectOn = (target: Delivery['uiTarget']) => {
-    const delivery = intervention?.delivery;
-    if (!delivery || delivery.uiTarget !== target) return '';
-    return EFFECT_CLASS[delivery.uiEffect ?? ''] ?? '';
-  };
-
   const isToast = intervention?.delivery?.uiEffect === 'toast';
+
+  /**
+   * Is this part of the page what the live nudge points at?
+   *
+   * One effect for every uiEffect, in the nudge's own colour: a ring that
+   * pulses a few times and then holds until the nudge is answered. It has to
+   * read as "look here" on a control that already has a meaning, without
+   * recolouring it into something that looks like a different button.
+   */
+  const targeted = (target: Delivery['uiTarget']) =>
+    !isToast && Boolean(intervention?.delivery?.message) && intervention?.delivery?.uiTarget === target;
+  const effectOn = (target: Delivery['uiTarget']) => (targeted(target) ? 'cg-nudge-target' : '');
+
+  useTitleAlert(Boolean(intervention?.delivery?.message) && !isToast, 'New nudge - PairPath');
 
   if (error) {
     return (
@@ -537,7 +573,8 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
   }
 
   return (
-    <div className="space-y-4">
+    // The nudge's colour, for the nudge and everything it points at.
+    <div className="space-y-4" style={intervention ? nudgeColour(intervention.state) : undefined}>
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-cg bg-hue-pair/10 text-hue-pair">
@@ -560,6 +597,7 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
         <div className="flex flex-wrap items-center gap-2">
           <RoleBadge role={myRole} />
           <ConnectionBadge status={status} message={socketError} />
+          <NudgeHistory items={pastNudges} />
           <button
             type="button"
             onClick={() => socket.current?.emit('role_switch', { sessionId })}
@@ -567,11 +605,12 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
             className={buttonClass({
               variant: 'secondary',
               size: 'sm',
-              className: effectOn('role_switch_button'),
+              className: `relative ${effectOn('role_switch_button')}`,
             })}
           >
             <RefreshCw size={14} strokeWidth={2.2} aria-hidden />
             Switch roles
+            {targeted('role_switch_button') && <AttentionDot className="-right-1.5 -top-1.5" />}
           </button>
           <button
             type="button"
@@ -590,6 +629,18 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
         >
           {notice}
         </p>
+      )}
+
+      {presenter && (
+        <EnginePanel
+          settings={presenter}
+          reports={reports}
+          onReplay={(state) => socket.current?.emit('replay_window', { sessionId, state })}
+          onTurnOff={() => {
+            presenterWanted.current = false;
+            socket.current?.emit('presenter_mode', { sessionId, on: false });
+          }}
+        />
       )}
 
       {session?.question?.description && (
@@ -627,20 +678,26 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
         </Card>
       )}
 
-      {intervention?.delivery?.message && (
-        <InterventionCard
-          intervention={intervention}
-          isToast={isToast}
-          onRespond={(accepted) => {
-            socket.current?.emit('intervention_response', {
-              sessionId,
-              interventionId: intervention.id,
-              accepted,
-            });
-            setIntervention(null);
-          }}
-        />
-      )}
+      {intervention?.delivery?.message &&
+        (isToast ? (
+          <NudgeToast intervention={intervention} />
+        ) : (
+          <NudgeCard
+            intervention={intervention}
+            // A struggle's hint is part of its nudge.
+            hint={intervention.state === 'LOGIC_STRUGGLE' ? hint : null}
+            sound={sound}
+            onToggleSound={toggleSound}
+            onRespond={(accepted) => {
+              socket.current?.emit('intervention_response', {
+                sessionId,
+                interventionId: intervention.id,
+                accepted,
+              });
+              setIntervention(null);
+            }}
+          />
+        ))}
 
       {/*
         Above the editor, with the interventions - not under the output pane
@@ -651,7 +708,8 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
         nobody saw it. Everything the system says to a pair now says it in one
         place, at the top.
       */}
-      {hint && <HintPanel hint={hint} className={effectOn('hint_panel')} />}
+      {/* Once its nudge is answered, the hint stays here to work from. */}
+      {hint && !(intervention?.state === 'LOGIC_STRUGGLE' && !isToast) && <HintPanel hint={hint} />}
 
       {solved && !solved.dismissed && (
         <SolvedBanner
@@ -773,9 +831,12 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
             'discussion_panel',
           )}`}
         >
-          <h2 className="flex items-center gap-2 border-b border-line px-4 py-3 font-semibold text-ink">
+          <h2 className="relative flex items-center gap-2 border-b border-line px-4 py-3 font-semibold text-ink">
             <MessagesSquare size={16} strokeWidth={2.2} aria-hidden className="text-hue-pair" />
             Discussion
+            {(targeted('discussion_panel') || targeted('chat_input')) && (
+              <AttentionDot className="right-4 top-1/2 -translate-y-1/2" />
+            )}
           </h2>
 
           <ul className="flex-1 space-y-2 overflow-y-auto px-4 py-3">
@@ -808,7 +869,11 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => event.key === 'Enter' && send()}
-              placeholder="Say something…"
+              placeholder={
+                targeted('chat_input')
+                  ? 'Your turn: explain your thinking, or suggest the next step…'
+                  : 'Say something…'
+              }
               className={`cg-focusable h-10 flex-1 rounded-cg border border-line bg-card-alt px-3 text-sm text-ink placeholder:text-faint-nontext hover:border-line-strong focus-visible:border-accent ${effectOn(
                 'chat_input',
               )}`}
@@ -830,69 +895,15 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
 }
 
 /**
- * The nudge itself.
- *
- * Two shapes, chosen by uiEffect. A toast affirms and leaves; anything else
- * asks a question of the pair and is worth a response, which is the only
- * signal anyone has about whether these interventions land.
- */
-function InterventionCard({
-  intervention,
-  isToast,
-  onRespond,
-}: {
-  intervention: Intervention;
-  isToast: boolean;
-  onRespond: (accepted: boolean) => void;
-}) {
-  const message = intervention.delivery?.message;
-
-  if (isToast) {
-    return (
-      <p
-        role="status"
-        className="flex animate-cg-fade items-center gap-3 rounded-cg border border-ok/30 bg-ok/10 px-4 py-2.5 text-sm text-body"
-      >
-        <Sparkles size={16} strokeWidth={2.2} aria-hidden className="shrink-0 text-ok" />
-        {message}
-      </p>
-    );
-  }
-
-  return (
-    <Card className="flex flex-wrap items-center justify-between gap-3 border-l-4 border-l-accent p-4">
-      <p className="flex items-center gap-3 text-body">
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-cg bg-accent/10 text-accent">
-          <Sparkles size={16} strokeWidth={2.2} aria-hidden />
-        </span>
-        {message}
-      </p>
-      <div className="flex gap-2">
-        {[true, false].map((accepted) => (
-          <button
-            key={String(accepted)}
-            type="button"
-            onClick={() => onRespond(accepted)}
-            className={buttonClass({ variant: 'secondary', size: 'sm' })}
-          >
-            {accepted ? 'Helpful' : 'Dismiss'}
-          </button>
-        ))}
-      </div>
-    </Card>
-  );
-}
-
-/**
  * The retrieved hint, in the three parts the corpus is written in.
  *
  * Kept as three labelled sections rather than one paragraph because that
  * separation IS the pedagogy: a reminder of the concept, an idea to try, and a
  * question to answer - never the answer itself.
  */
-function HintPanel({ hint, className }: { hint: RagHint; className?: string }) {
+function HintPanel({ hint }: { hint: RagHint }) {
   return (
-    <Card className={`overflow-hidden ${className ?? ''}`}>
+    <Card className="overflow-hidden">
       <div className="flex items-center gap-2 border-b border-line px-4 py-2.5">
         <Lightbulb size={15} strokeWidth={2.2} aria-hidden className="text-warn" />
         <h3 className="text-sm font-semibold text-ink">A nudge, not an answer</h3>
