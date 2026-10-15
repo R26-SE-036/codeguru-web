@@ -6,12 +6,14 @@ import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   ArrowRight,
+  BookOpen,
   Check,
   CircleCheck,
   CircleX,
   Info,
   Loader2,
   ListChecks,
+  Sparkles,
   TriangleAlert,
 } from 'lucide-react';
 
@@ -31,6 +33,17 @@ import { ProLock } from '@/components/pro';
  * `passed` is deliberately not sent. The integration contract is explicit: send
  * the score and let the platform apply the pass mark, or this service quietly
  * disagrees with the rest of the platform about what passing means.
+ *
+ * ========================= CONFIDENCE (metacognition) =========================
+ * Before checking each answer the student says how sure they are. The answer
+ * cannot be checked until both are chosen. The feedback then depends on the
+ * pair: certain and wrong is a misconception (full explanation, a callout and a
+ * link back to the lesson); guessing and right is a lucky guess (review why);
+ * certain and right gets short praise; guessing and wrong gets the normal
+ * explanation. Every answer, right or wrong, with its confidence, goes to
+ * /progress/update, where knowledge tracing weighs it and the progress page
+ * turns it into a calibration score.
+ * =============================================================================
  */
 
 interface QuizQuestion {
@@ -48,6 +61,19 @@ interface Trigger {
 }
 
 type ReportStatus = 'idle' | 'sending' | 'ok' | 'failed';
+
+type Confidence = 'low' | 'medium' | 'high';
+
+interface Answer {
+  correct: boolean;
+  confidence: Confidence;
+}
+
+const CONFIDENCE_STEPS: Array<{ value: Confidence; label: string; hint: string }> = [
+  { value: 'low', label: 'Low', hint: 'Guessing' },
+  { value: 'medium', label: 'Medium', hint: 'Fairly sure' },
+  { value: 'high', label: 'High', hint: 'Certain' },
+];
 
 /**
  * Per-trigger, so starting a second quiz cannot resume the first one's answers.
@@ -68,6 +94,9 @@ export function QuizView({ triggerId }: { triggerId: string }) {
   // Positions of the questions answered wrongly, for the "worth another look"
   // list at the end. Kept with the rest of the attempt so a refresh keeps it.
   const [missed, setMissed] = useState<number[]>([]);
+  // How sure the student is about the answer on screen, and every answer so far.
+  const [confidence, setConfidence] = useState<Confidence | null>(null);
+  const [answers, setAnswers] = useState<Answer[]>([]);
   const [finished, setFinished] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [locked, setLocked] = useState<string | null>(null);
@@ -103,6 +132,15 @@ export function QuizView({ triggerId }: { triggerId: string }) {
               setMissed(
                 Array.isArray(parsed.missed)
                   ? parsed.missed.filter((n: unknown) => typeof n === 'number')
+                  : [],
+              );
+              setAnswers(
+                Array.isArray(parsed.answers)
+                  ? parsed.answers.filter(
+                      (a: Answer) =>
+                        typeof a?.correct === 'boolean' &&
+                        CONFIDENCE_STEPS.some((step) => step.value === a?.confidence),
+                    )
                   : [],
               );
               return;
@@ -154,12 +192,12 @@ export function QuizView({ triggerId }: { triggerId: string }) {
     try {
       sessionStorage.setItem(
         storageKey(triggerId),
-        JSON.stringify({ questions, index, score, missed }),
+        JSON.stringify({ questions, index, score, missed, answers }),
       );
     } catch {
       // Storage unavailable; the quiz still works, it just will not resume.
     }
-  }, [questions, index, score, missed, finished, triggerId]);
+  }, [questions, index, score, missed, answers, finished, triggerId]);
 
   /**
    * The original's lenient comparison, kept.
@@ -177,7 +215,7 @@ export function QuizView({ triggerId }: { triggerId: string }) {
     return x === y || x.includes(y) || y.includes(x);
   }, []);
 
-  async function finish(finalScore: number, total: number) {
+  async function finish(finalScore: number, total: number, given: Answer[]) {
     setFinished(true);
     try {
       sessionStorage.removeItem(storageKey(triggerId));
@@ -194,6 +232,10 @@ export function QuizView({ triggerId }: { triggerId: string }) {
         concept: trigger?.concept_tag ?? trigger?.error_type,
         score: finalScore,
         total_questions: total,
+        // One per question, with its confidence. Only when the set is whole: a
+        // quiz resumed from before confidence was asked has gaps, and the
+        // backend refuses answers that do not add up to the score.
+        ...(given.length === total ? { answers: given } : {}),
       })
       .then(() => setGraphStatus('ok'))
       .catch(() => setGraphStatus('failed'));
@@ -420,6 +462,7 @@ export function QuizView({ triggerId }: { triggerId: string }) {
 
   const question = questions[index];
   const isCorrect = checked && matches(selected, question.correct_answer);
+  const feedback = feedbackFor(isCorrect, confidence);
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -493,6 +536,8 @@ export function QuizView({ triggerId }: { triggerId: string }) {
             );
           })}
         </div>
+
+        <ConfidencePicker value={confidence} onChange={setConfidence} disabled={checked} />
       </Card>
 
       {checked && (
@@ -517,12 +562,32 @@ export function QuizView({ triggerId }: { triggerId: string }) {
               <Info size={18} strokeWidth={2.2} aria-hidden />
             )}
           </span>
-          <div>
-            <p className={`font-bold ${isCorrect ? 'text-ok' : 'text-warn'}`}>
-              {isCorrect ? 'Correct' : 'Not quite'}
-            </p>
-            {question.explanation && (
-              <p className="mt-1 text-body">{question.explanation}</p>
+          <div className="min-w-0 flex-1">
+            <p className={`font-bold ${isCorrect ? 'text-ok' : 'text-warn'}`}>{feedback.title}</p>
+            {feedback.lead && <p className="mt-1 text-body">{feedback.lead}</p>}
+
+            {feedback.misconception ? (
+              <div className="mt-3 rounded-cg border border-warn/40 bg-warn/10 p-3.5">
+                <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-warn">
+                  <TriangleAlert size={13} strokeWidth={2.4} aria-hidden />
+                  Common misconception
+                </p>
+                {question.explanation && <p className="mt-1.5 text-body">{question.explanation}</p>}
+                <p className="mt-1.5 text-sm text-body">
+                  The right answer was <strong className="text-ink">{question.correct_answer}</strong>. Being sure of
+                  the wrong idea is the one worth fixing now.
+                </p>
+                <Link
+                  href={`/study/${encodeURIComponent(triggerId)}/lesson`}
+                  className={buttonClass({ variant: 'secondary', size: 'sm', className: 'mt-3' })}
+                >
+                  <BookOpen size={14} strokeWidth={2.4} aria-hidden />
+                  Back to the lesson
+                </Link>
+              </div>
+            ) : (
+              feedback.showExplanation &&
+              question.explanation && <p className="mt-1 text-body">{question.explanation}</p>
             )}
           </div>
         </Card>
@@ -532,10 +597,14 @@ export function QuizView({ triggerId }: { triggerId: string }) {
         {!checked ? (
           <button
             type="button"
-            disabled={selected === null}
+            disabled={selected === null || confidence === null}
+            title={selected !== null && confidence === null ? 'Say how sure you are first' : undefined}
             onClick={() => {
+              if (confidence === null) return;
+              const right = matches(selected, question.correct_answer);
               setChecked(true);
-              if (matches(selected, question.correct_answer)) {
+              setAnswers((given) => [...given.slice(0, index), { correct: right, confidence }]);
+              if (right) {
                 setScore((s) => s + 1);
               } else {
                 setMissed((m) => (m.includes(index) ? m : [...m, index]));
@@ -551,10 +620,11 @@ export function QuizView({ triggerId }: { triggerId: string }) {
             onClick={() => {
               const last = index + 1 >= questions.length;
               if (last) {
-                finish(score, questions.length);
+                finish(score, questions.length, answers);
               } else {
                 setIndex((i) => i + 1);
                 setSelected(null);
+                setConfidence(null);
                 setChecked(false);
               }
             }}
@@ -608,5 +678,100 @@ function StatusLine({
       )}
       {text}
     </p>
+  );
+}
+
+/**
+ * What the feedback says, by answer and confidence.
+ *
+ *   wrong + high    misconception: full explanation in a callout, lesson link
+ *   right + low     lucky guess: say so, and explain why it is right
+ *   right + high    real understanding: short praise
+ *   otherwise       the normal explanation
+ */
+function feedbackFor(correct: boolean, confidence: Confidence | null) {
+  if (!correct && confidence === 'high') {
+    return { title: 'Not quite, and you were sure', lead: null, misconception: true, showExplanation: true };
+  }
+  if (correct && confidence === 'low') {
+    return {
+      title: 'You got it right, but let\u2019s review why!',
+      lead: null,
+      misconception: false,
+      showExplanation: true,
+    };
+  }
+  if (correct && confidence === 'high') {
+    return { title: 'Correct, and you knew it.', lead: 'Nice work.', misconception: false, showExplanation: false };
+  }
+  return { title: correct ? 'Correct' : 'Not quite', lead: null, misconception: false, showExplanation: true };
+}
+
+/** A three-step slider: how sure the student is, chosen before checking the answer. */
+function ConfidencePicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: Confidence | null;
+  onChange: (value: Confidence) => void;
+  disabled: boolean;
+}) {
+  const position = value === null ? -1 : CONFIDENCE_STEPS.findIndex((step) => step.value === value);
+
+  return (
+    <div className="mt-6 border-t border-line pt-5">
+    <fieldset disabled={disabled} className="m-0 min-w-0 border-0 p-0">
+      <legend className="flex w-full items-center justify-between gap-3 p-0 text-sm font-semibold text-ink">
+        <span className="flex items-center gap-1.5">
+          <Sparkles size={14} strokeWidth={2.2} aria-hidden className="text-hue-study" />
+          How sure are you?
+        </span>
+        {value === null && <span className="text-xs font-medium text-muted">Choose one to check your answer</span>}
+      </legend>
+
+      <div className="relative mt-4 px-[16.66%]">
+        {/* The track, filled up to the chosen step. */}
+        <div aria-hidden className="absolute left-[16.66%] right-[16.66%] top-[13px] h-1 rounded-full bg-line" />
+        <div
+          aria-hidden
+          className="absolute left-[16.66%] top-[13px] h-1 rounded-full bg-hue-study transition-all duration-200"
+          style={{ width: position < 0 ? '0%' : `${(position / 2) * 66.68}%` }}
+        />
+      </div>
+
+      <div role="radiogroup" aria-label="How sure are you?" className="relative -mt-[3px] grid grid-cols-3">
+        {CONFIDENCE_STEPS.map((step, index) => {
+          const active = value === step.value;
+          const reached = position >= index;
+          return (
+            <button
+              key={step.value}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => onChange(step.value)}
+              className="cg-focusable group flex flex-col items-center gap-1.5 rounded-cg py-1 disabled:cursor-default"
+            >
+              <span
+                aria-hidden
+                className={`grid h-7 w-7 place-items-center rounded-full border-2 transition ${
+                  active
+                    ? 'scale-110 border-hue-study bg-hue-study'
+                    : reached
+                      ? 'border-hue-study bg-card'
+                      : 'border-line-strong bg-card group-hover:border-hue-study/60'
+                }`}
+              >
+                {active && <span className="h-2.5 w-2.5 rounded-full bg-white" />}
+              </span>
+              <span className={`text-sm font-semibold ${active ? 'text-ink' : 'text-body'}`}>{step.label}</span>
+              <span className="text-xs text-muted">{step.hint}</span>
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
+    </div>
   );
 }

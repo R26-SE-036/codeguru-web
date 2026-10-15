@@ -51,6 +51,8 @@ import {
   Stat,
   buttonClass,
 } from '@/components/ui';
+
+import { type Calibration, CalibrationCard } from './calibration';
 import { CountUp, Reveal } from '@/components/motion';
 import { FillBar, LegendItem, Ring } from '@/components/charts';
 import { ProLock } from '@/components/pro';
@@ -194,6 +196,7 @@ export function ProgressView() {
   const [attempts, setAttempts] = useState<Attempt[] | null>(null);
   const [mastery, setMastery] = useState<Mastery[]>([]);
   const [curriculum, setCurriculum] = useState<Curriculum | null>(null);
+  const [calibration, setCalibration] = useState<Calibration | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   // The learning map is Pro; the proxy answers 402 on the Free plan.
@@ -207,7 +210,7 @@ export function ProgressView() {
         // Both together. Mastery failing on its own must not cost the student
         // their attempt history, so it degrades to an empty list rather than
         // taking the page down - the charts that need it simply do not render.
-        const [history, estimates, map] = await Promise.all([
+        const [history, estimates, map, calibrated] = await Promise.all([
           api.get<{ success: boolean; data?: Attempt[] }>('study', '/progress/me'),
           api
             .get<{ success: boolean; data?: Mastery[] }>('study', '/progress/me/mastery')
@@ -215,12 +218,16 @@ export function ProgressView() {
           api
             .get<{ success: boolean; data?: Curriculum }>('study', '/progress/me/curriculum')
             .catch(() => ({ success: false, data: undefined })),
+          api
+            .get<{ success: boolean; data?: Calibration }>('study', '/progress/me/calibration')
+            .catch(() => ({ success: false, data: undefined })),
         ]);
 
         if (!live) return;
         setAttempts(history.data ?? []);
         setMastery(estimates.data ?? []);
         setCurriculum(map.data ?? null);
+        setCalibration(calibrated.data ?? null);
       } catch (err) {
         if (!live) return;
         if (err instanceof ApiError && err.needsPro) {
@@ -500,6 +507,21 @@ export function ProgressView() {
           </div>
         </section>
       )}
+
+      {/* ── Metacognition ────────────────────────────────────────────────
+          From the confidence each answer was given with: whether the student
+          knows what they know. Shown even before there is data, to say what
+          will appear here. */}
+      <section>
+        <Reveal>
+          <SectionTitle hint="From the confidence you give each quiz answer">
+            How well you know what you know
+          </SectionTitle>
+        </Reveal>
+        <Reveal>
+          <CalibrationCard data={calibration} />
+        </Reveal>
+      </section>
 
       {/* ── The whole curriculum ────────────────────────────────────────
           Rendered outside the hasHistory gate on purpose. This is the part
