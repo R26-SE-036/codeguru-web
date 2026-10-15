@@ -10,7 +10,6 @@ import {
   CircleX,
   Eye,
   Keyboard,
-  Lightbulb,
   MessagesSquare,
   MousePointerClick,
   PencilLine,
@@ -699,18 +698,6 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
           />
         ))}
 
-      {/*
-        Above the editor, with the interventions - not under the output pane
-        where it used to sit.
-        A hint arrives because a run went wrong, so it appeared below the
-        output, below the fold, at the bottom of a page the pair had no reason
-        to scroll to. The retrieval pipeline ran, the panel rendered, and
-        nobody saw it. Everything the system says to a pair now says it in one
-        place, at the top.
-      */}
-      {/* Once its nudge is answered, the hint stays here to work from. */}
-      {hint && !(intervention?.state === 'LOGIC_STRUGGLE' && !isToast) && <HintPanel hint={hint} />}
-
       {solved && !solved.dismissed && (
         <SolvedBanner
           seconds={solved.seconds}
@@ -891,41 +878,6 @@ export function Workspace({ sessionId, userId }: { sessionId: string; userId: st
         </aside>
       </div>
     </div>
-  );
-}
-
-/**
- * The retrieved hint, in the three parts the corpus is written in.
- *
- * Kept as three labelled sections rather than one paragraph because that
- * separation IS the pedagogy: a reminder of the concept, an idea to try, and a
- * question to answer - never the answer itself.
- */
-function HintPanel({ hint }: { hint: RagHint }) {
-  return (
-    <Card className="overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-line px-4 py-2.5">
-        <Lightbulb size={15} strokeWidth={2.2} aria-hidden className="text-warn" />
-        <h3 className="text-sm font-semibold text-ink">A nudge, not an answer</h3>
-        {hint.fallbackUsed && (
-          <span className="ml-auto text-xs text-muted">general guidance</span>
-        )}
-      </div>
-      <dl className="space-y-3 p-4 text-sm">
-        <div>
-          <dt className="text-xs font-semibold uppercase tracking-wide text-muted">Concept</dt>
-          <dd className="mt-1 text-body">{hint.conceptReminder}</dd>
-        </div>
-        <div>
-          <dt className="text-xs font-semibold uppercase tracking-wide text-muted">Try this</dt>
-          <dd className="mt-1 text-body">{hint.exampleIdea}</dd>
-        </div>
-        <div>
-          <dt className="text-xs font-semibold uppercase tracking-wide text-muted">Ask yourselves</dt>
-          <dd className="mt-1 text-body">{hint.reflectiveQuestion}</dd>
-        </div>
-      </dl>
-    </Card>
   );
 }
 
