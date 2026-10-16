@@ -8,6 +8,7 @@ import {
   ClipboardCheck,
   Clock3,
   Crown,
+  GraduationCap,
   LineChart,
   Lightbulb,
   Lock,
@@ -175,7 +176,8 @@ export function StudyView({
           <Reveal>
             <EmptyState icon={BookOpenCheck} title="Nothing to work on right now">
               Keep writing Java in your editor. If the same mistake shows up more than once, a
-              lesson for it appears here automatically.
+              lesson for it appears here automatically. In the meantime, the free course below
+              covers every mistake Code Coach looks for.
             </EmptyState>
           </Reveal>
         ) : (
@@ -193,8 +195,43 @@ export function StudyView({
         )}
       </section>
 
+      <CourseBanner />
+
       <HowItWorks />
     </div>
+  );
+}
+
+/**
+ * The way into the free course. It sits under the lessons rather than in
+ * place of them: the lessons are written for the student's own mistakes, the
+ * course for everyone, and it works even when there is no lesson waiting.
+ */
+function CourseBanner() {
+  return (
+    <Reveal>
+      <Link
+        href="/study/course"
+        className="cg-focusable group relative flex flex-col gap-4 overflow-hidden rounded-cg-xl border border-line bg-card p-6 shadow-cg-sm transition hover:border-hue-study/50 sm:flex-row sm:items-center"
+      >
+        <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-hue-study/15 blur-3xl" />
+        <span className="relative grid h-14 w-14 shrink-0 place-items-center rounded-cg-lg bg-hue-study text-white">
+          <GraduationCap size={26} strokeWidth={2} aria-hidden />
+        </span>
+        <span className="relative min-w-0 flex-1">
+          <span className="text-xs font-semibold uppercase tracking-widest text-hue-study">Free course</span>
+          <span className="mt-1 block text-lg font-bold text-ink">Java foundations</span>
+          <span className="mt-1 block text-sm text-body">
+            Every mistake Code Coach looks for, with diagrams, traces, worked examples and practice
+            questions. No lesson trigger needed, and it does not change your mastery.
+          </span>
+        </span>
+        <span className={buttonClass({ variant: 'secondary', className: 'relative shrink-0' })}>
+          Open the course
+          <ArrowRight size={16} strokeWidth={2.4} aria-hidden className="transition group-hover:translate-x-0.5" />
+        </span>
+      </Link>
+    </Reveal>
   );
 }
 
@@ -295,6 +332,10 @@ function Hero({
             <Link href="/study/progress" className={buttonClass({ variant: 'secondary', size: 'lg' })}>
               <LineChart size={16} strokeWidth={2.2} aria-hidden />
               Your progress
+            </Link>
+            <Link href="/study/course" className={buttonClass({ variant: 'secondary', size: 'lg' })}>
+              <GraduationCap size={16} strokeWidth={2.2} aria-hidden />
+              Free course
             </Link>
           </div>
         </div>

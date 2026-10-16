@@ -9,6 +9,7 @@ import {
   Brain,
   ExternalLink,
   GitBranch,
+  GraduationCap,
   Lightbulb,
   Check,
   ListChecks,
@@ -560,6 +561,17 @@ export function LessonView({ triggerId }: { triggerId: string }) {
           <ListChecks size={17} strokeWidth={2.3} aria-hidden />
           Take the quiz
         </Link>
+        {/* The longer, general unit on the same mistake. It may not be written
+            yet; the unit page says so rather than 404ing. */}
+        {trigger?.error_type && (
+          <Link
+            href={`/study/course/${encodeURIComponent(trigger.error_type)}`}
+            className={buttonClass({ variant: 'secondary', size: 'lg' })}
+          >
+            <GraduationCap size={17} strokeWidth={2.2} aria-hidden />
+            Read the full unit
+          </Link>
+        )}
         <Link href="/study" className={buttonClass({ variant: 'secondary', size: 'lg' })}>
           Back to your lessons
         </Link>

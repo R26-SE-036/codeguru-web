@@ -117,7 +117,14 @@ function withRoleClasses(chart: string): string {
   return lines.join('\n');
 }
 
-export default function MermaidDiagram({ chart }: { chart: string }) {
+/**
+ * `svgLabels` draws node text as SVG text rather than HTML. Mermaid sizes an
+ * HTML label by measuring it before the page's own styles apply, so a label
+ * can come out wider than its box and be clipped ("Start: i = (" for
+ * "Start: i = 0"). The course diagrams, which are written to be read whole,
+ * use SVG labels; the lesson diagrams keep the default.
+ */
+export default function MermaidDiagram({ chart, svgLabels = false }: { chart: string; svgLabels?: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
   // Bumped when the student switches theme, so the colours are read again.
@@ -161,6 +168,7 @@ export default function MermaidDiagram({ chart }: { chart: string }) {
               'system-ui, sans-serif',
           },
           flowchart: {
+            htmlLabels: !svgLabels,
             curve: 'basis',
             padding: 14,
             nodeSpacing: 40,
@@ -195,7 +203,7 @@ export default function MermaidDiagram({ chart }: { chart: string }) {
     return () => {
       live = false;
     };
-  }, [chart, id, themeRevision]);
+  }, [chart, id, themeRevision, svgLabels]);
 
   if (failed) {
     return (
