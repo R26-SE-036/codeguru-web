@@ -32,6 +32,8 @@ export interface Program {
   runnable: boolean;
   output?: string | null;
   error?: string | null;
+  /** For a program meant not to compile: a phrase from javac's message. */
+  compile_error?: string | null;
 }
 
 export type Block =

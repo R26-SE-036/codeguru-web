@@ -92,7 +92,7 @@ function Figure({ caption, children }: { caption: string; children: React.ReactN
   return (
     <figure className="space-y-2">
       {children}
-      <figcaption className="text-center text-sm text-muted">{caption}</figcaption>
+      <figcaption className="text-center text-sm text-muted">{inline(caption)}</figcaption>
     </figure>
   );
 }
@@ -140,7 +140,7 @@ function ProgramPanel({ program, tone }: { program: Program; tone: keyof typeof 
       <pre className={`flex-1 overflow-x-auto border-t px-4 py-3.5 font-mono text-[13px] leading-relaxed text-ink [font-variant-ligatures:none] ${style.rule}`}>
         {program.code}
       </pre>
-      {program.runnable && (program.output || program.error) && <Console program={program} />}
+      {program.runnable && (program.output || program.error || program.compile_error) && <Console program={program} />}
     </section>
   );
 }
@@ -156,10 +156,16 @@ function Console({ program }: { program: Program }) {
       <p className="mb-1.5 flex items-center gap-1.5 font-sans text-[11px] font-semibold uppercase tracking-wider text-slate-400">
         <Terminal size={12} strokeWidth={2.4} aria-hidden />
         Output
-        <span className="ml-auto normal-case tracking-normal text-slate-500">compiled and run</span>
+        <span className="ml-auto normal-case tracking-normal text-slate-500">{program.compile_error ? 'checked with javac' : 'compiled and run'}</span>
       </p>
-      {program.output && <pre className="whitespace-pre-wrap text-slate-100">{program.output}</pre>}
-      {program.error && <p className="mt-1 text-red-400">Crashes: {program.error}</p>}
+      {program.compile_error ? (
+        <p className="text-red-400">Does not compile: {program.compile_error}</p>
+      ) : (
+        <>
+          {program.output && <pre className="whitespace-pre-wrap text-slate-100">{program.output}</pre>}
+          {program.error && <p className="mt-1 text-red-400">Crashes: {program.error}</p>}
+        </>
+      )}
     </div>
   );
 }
