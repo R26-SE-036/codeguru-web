@@ -221,7 +221,11 @@ export function AppShell({
         <main
           id="main"
           tabIndex={-1}
-          className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 outline-none sm:px-6 lg:px-8 lg:py-10"
+          // A course unit is a long read with side-by-side code and large
+          // diagrams; it gets the room the rest of the app does not need.
+          className={`mx-auto w-full flex-1 px-4 py-6 outline-none sm:px-6 lg:px-8 lg:py-10 ${
+            /^\/study\/course\/[^/]+/.test(pathname) ? 'max-w-[100rem]' : 'max-w-6xl'
+          }`}
         >
           {children}
         </main>

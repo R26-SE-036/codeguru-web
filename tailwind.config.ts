@@ -108,8 +108,15 @@ const config: Config = {
           from: { opacity: '0', transform: 'translateY(-4px) scale(0.98)' },
           to: { opacity: '1', transform: 'none' },
         },
+        // A tick landing: pops past full size and settles.
+        'cg-pop': {
+          '0%': { opacity: '0', transform: 'scale(0.3)' },
+          '60%': { opacity: '1', transform: 'scale(1.25)' },
+          '100%': { opacity: '1', transform: 'scale(1)' },
+        },
       },
       animation: {
+        'cg-pop': 'cg-pop 0.4s var(--cg-ease) both',
         'cg-menu': 'cg-menu 0.16s var(--cg-ease) both',
         'cg-rise': 'cg-rise 0.45s var(--cg-ease) both',
         'cg-fade': 'cg-fade 0.3s var(--cg-ease) both',
