@@ -55,7 +55,7 @@ export function CourseBlock({ block }: { block: Block }) {
     case 'diagram':
       return (
         <Figure caption={block.caption}>
-          <MermaidDiagram chart={block.mermaid} svgLabels />
+          <MermaidDiagram chart={block.mermaid} svgLabels fontSize={18} />
         </Figure>
       );
     case 'array':
@@ -130,14 +130,14 @@ function ProgramPanel({ program, tone }: { program: Program; tone: keyof typeof 
   const Icon = style.icon;
   return (
     <section className={`flex h-full flex-col overflow-hidden rounded-cg-lg border border-line ${style.body}`}>
-      <header className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold ${style.head}`}>
+      <header className={`flex items-center gap-2 px-4 py-3 text-[0.95rem] font-semibold ${style.head}`}>
         <Icon size={14} strokeWidth={2.6} aria-hidden />
         {tone === 'neutral' ? program.title || style.label : style.label}
         {tone !== 'neutral' && program.title && (
           <span className="ml-auto text-xs font-normal text-muted">{program.title}</span>
         )}
       </header>
-      <pre className={`flex-1 overflow-x-auto border-t px-4 py-3.5 font-mono text-[13px] leading-relaxed text-ink [font-variant-ligatures:none] ${style.rule}`}>
+      <pre className={`flex-1 overflow-x-auto border-t px-4 py-3.5 font-mono text-[14.5px] leading-relaxed text-ink [font-variant-ligatures:none] lg:text-[15px] ${style.rule}`}>
         {program.code}
       </pre>
       {program.runnable && (program.output || program.error || program.compile_error) && <Console program={program} />}
@@ -152,7 +152,7 @@ function ProgramPanel({ program, tone }: { program: Program; tone: keyof typeof 
  */
 function Console({ program }: { program: Program }) {
   return (
-    <div className="border-t border-line bg-[#0f1420] px-4 py-3 font-mono text-[12.5px] leading-relaxed [font-variant-ligatures:none]">
+    <div className="border-t border-line bg-[#0f1420] px-4 py-3 font-mono text-[13.5px] leading-relaxed [font-variant-ligatures:none] lg:text-sm">
       <p className="mb-1.5 flex items-center gap-1.5 font-sans text-[11px] font-semibold uppercase tracking-wider text-slate-400">
         <Terminal size={12} strokeWidth={2.4} aria-hidden />
         Output
@@ -177,7 +177,7 @@ function Compare({ bad, good, note }: { bad: Program; good: Program; note: strin
         <ProgramPanel program={bad} tone="bad" />
         <ProgramPanel program={good} tone="good" />
       </div>
-      {note && <p className="text-sm leading-relaxed text-body">{inline(note)}</p>}
+      {note && <p className="leading-relaxed text-body">{inline(note)}</p>}
     </div>
   );
 }
@@ -198,11 +198,11 @@ function TraceTable({
   return (
     <Figure caption={caption}>
       <div className="overflow-x-auto rounded-cg-lg border border-line">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-card-alt text-xs text-muted">
+        <table className="w-full text-left text-base">
+          <thead className="bg-card-alt text-sm text-muted">
             <tr>
               {columns.map((column) => (
-                <th key={column} scope="col" className="px-4 py-2.5 font-semibold">
+                <th key={column} scope="col" className="px-5 py-3 font-semibold">
                   {inline(column)}
                 </th>
               ))}
@@ -215,7 +215,7 @@ function TraceTable({
                 className={`border-t border-line ${highlight.includes(r) ? 'bg-warn/10 font-semibold text-ink' : 'text-body'}`}
               >
                 {row.map((cell, c) => (
-                  <td key={c} className="px-4 py-2.5">
+                  <td key={c} className="px-5 py-3">
                     {inline(cell)}
                   </td>
                 ))}
@@ -258,7 +258,7 @@ function ArrayView({
             {cells.map((cell) => (
               <div key={cell.index} className="flex flex-col items-center gap-1.5">
                 <div
-                  className={`grid h-12 w-12 place-items-center rounded-cg border-2 font-mono text-base font-bold sm:h-14 sm:w-16 sm:text-lg ${
+                  className={`grid h-12 w-12 place-items-center rounded-cg border-2 font-mono text-base font-bold sm:h-16 sm:w-20 sm:text-xl ${
                     cell.missing
                       ? 'border-dashed border-danger/70 bg-danger/[0.06] text-danger'
                       : highlight.includes(cell.index)
@@ -268,14 +268,14 @@ function ArrayView({
                 >
                   {cell.value}
                 </div>
-                <span className={`font-mono text-xs ${cell.missing ? 'font-semibold text-danger' : 'text-muted'}`}>
+                <span className={`font-mono text-sm ${cell.missing ? 'font-semibold text-danger' : 'text-muted'}`}>
                   [{cell.index}]
                 </span>
               </div>
             ))}
           </div>
         </div>
-        {note && <p className="mx-auto mt-4 max-w-lg text-center text-sm text-body">{inline(note)}</p>}
+        {note && <p className="mx-auto mt-5 max-w-2xl text-center text-base text-body">{inline(note)}</p>}
       </div>
     </Figure>
   );
@@ -303,7 +303,7 @@ function MemoryView({
   return (
     <Figure caption={caption}>
       <div className="rounded-cg-lg border border-line bg-card-alt p-4">
-        <svg viewBox={`0 0 560 ${height}`} className="mx-auto h-auto w-full max-w-xl" role="img" aria-label={caption}>
+        <svg viewBox={`0 0 560 ${height}`} className="mx-auto h-auto w-full max-w-3xl" role="img" aria-label={caption}>
           <defs>
             <marker id="course-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
               <path d="M0,0 L10,5 L0,10 z" style={{ fill: study }} />
@@ -342,7 +342,7 @@ function MemoryView({
             );
           })}
         </svg>
-        {note && <p className="mx-auto mt-3 max-w-lg text-center text-sm text-body">{inline(note)}</p>}
+        {note && <p className="mx-auto mt-4 max-w-2xl text-center text-base text-body">{inline(note)}</p>}
       </div>
     </Figure>
   );
@@ -373,26 +373,28 @@ function ChartView({
 }) {
   const colors = useThemeColors(CHART_TOKENS);
   const palette = [colors.accent, colors.warn, colors.ok];
+  // Chart text is plain SVG, so code marks would show as literal backticks.
+  const plain = (text: string) => text.replace(/`/g, '');
   const data = categories.map((category, i) => ({
-    category,
-    ...Object.fromEntries(series.map((s) => [s.name, s.values[i]])),
+    category: plain(category),
+    ...Object.fromEntries(series.map((s) => [plain(s.name), s.values[i]])),
   }));
 
   return (
     <Figure caption={caption}>
-      <div className="h-72 rounded-cg-lg border border-line bg-card p-3">
+      <div className="h-80 rounded-cg-lg border border-line bg-card p-4 lg:h-96">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 12, right: 12, bottom: 18, left: 12 }}>
             <CartesianGrid stroke={colors.grid} strokeDasharray="3 3" vertical={false} />
             <XAxis
               dataKey="category"
-              tick={{ fill: colors.axis, fontSize: 12 }}
+              tick={{ fill: colors.axis, fontSize: 14 }}
               stroke={colors.grid}
               label={{ value: x_label, position: 'insideBottom', offset: -10, fill: colors.axis, fontSize: 12 }}
             />
             <YAxis
               allowDecimals={false}
-              tick={{ fill: colors.axis, fontSize: 12 }}
+              tick={{ fill: colors.axis, fontSize: 14 }}
               stroke={colors.grid}
               label={{ value: y_label, angle: -90, position: 'insideLeft', offset: 4, fill: colors.axis, fontSize: 12, style: { textAnchor: 'middle' } }}
             />
@@ -402,7 +404,7 @@ function ChartView({
             />
             {series.length > 1 && <Legend verticalAlign="top" height={28} wrapperStyle={{ fontSize: 12 }} />}
             {series.map((s, i) => (
-              <Bar key={s.name} dataKey={s.name} fill={palette[i]} radius={[6, 6, 0, 0]} maxBarSize={56} />
+              <Bar key={s.name} dataKey={plain(s.name)} fill={palette[i]} radius={[6, 6, 0, 0]} maxBarSize={72} />
             ))}
           </BarChart>
         </ResponsiveContainer>
@@ -440,9 +442,9 @@ function KeyPoints({ items }: { items: string[] }) {
   return (
     <ul className="grid gap-2.5 sm:grid-cols-2">
       {items.map((item, i) => (
-        <li key={i} className="flex gap-2.5 rounded-cg-lg border border-line bg-card p-3.5">
+        <li key={i} className="flex gap-3 rounded-cg-lg border border-line bg-card p-4">
           <Sparkles size={16} strokeWidth={2.2} aria-hidden className="mt-0.5 shrink-0 text-hue-study" />
-          <span className="text-sm leading-relaxed text-body">{inline(item)}</span>
+          <span className="leading-relaxed text-body">{inline(item)}</span>
         </li>
       ))}
     </ul>
@@ -474,7 +476,7 @@ function PracticeCheck({
     <Card className="p-5">
       <p className="font-semibold text-ink">{inline(question)}</p>
       {code && (
-        <pre className="mt-3 overflow-x-auto rounded-cg border border-line bg-inset/60 px-4 py-3 font-mono text-[13px] leading-relaxed text-ink [font-variant-ligatures:none]">
+        <pre className="mt-3 overflow-x-auto rounded-cg border border-line bg-inset/60 px-4 py-3 font-mono text-[14.5px] leading-relaxed text-ink [font-variant-ligatures:none]">
           {code}
         </pre>
       )}
@@ -489,7 +491,7 @@ function PracticeCheck({
               role="radio"
               aria-checked={chosen}
               onClick={() => setPicked(i)}
-              className={`cg-focusable flex items-center gap-2.5 rounded-cg border-2 px-3.5 py-2.5 text-left text-sm transition ${
+              className={`cg-focusable flex items-center gap-3 rounded-cg border-2 px-4 py-3 text-left text-base transition ${
                 showRight
                   ? 'border-ok bg-ok/10 text-ink'
                   : chosen
@@ -504,13 +506,17 @@ function PracticeCheck({
               ) : (
                 <span aria-hidden className="h-4 w-4 shrink-0 rounded-full border-2 border-line-strong" />
               )}
-              <span className={/[=(<>"]/.test(option) ? 'font-mono text-[13px] [font-variant-ligatures:none]' : ''}>{option}</span>
+              {option.includes('`') ? (
+                <span>{inline(option)}</span>
+              ) : (
+                <span className={/[=(<>"]/.test(option) ? 'font-mono text-[14.5px] [font-variant-ligatures:none]' : ''}>{option}</span>
+              )}
             </button>
           );
         })}
       </div>
       {picked !== null && (
-        <p role="status" className={`mt-4 rounded-cg px-4 py-3 text-sm leading-relaxed ${right ? 'bg-ok/10' : 'bg-warn/10'}`}>
+        <p role="status" className={`mt-4 rounded-cg px-4 py-3 text-base leading-relaxed ${right ? 'bg-ok/10' : 'bg-warn/10'}`}>
           <span className={`font-semibold ${right ? 'text-ok' : 'text-warn'}`}>{right ? 'Right. ' : 'Not quite. '}</span>
           <span className="text-body">{inline(explanation)}</span>
         </p>

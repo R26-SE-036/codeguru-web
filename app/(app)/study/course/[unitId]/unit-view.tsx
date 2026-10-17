@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -14,11 +14,18 @@ import {
   Target,
 } from 'lucide-react';
 
-import { COURSE_PROGRESS_EVENT, finishedUnits, setFinished } from '@/lib/course-progress';
+import {
+  COURSE_PROGRESS_EVENT,
+  finishedUnits,
+  markSectionsRead,
+  sectionsRead,
+  setFinished,
+} from '@/lib/course-progress';
 import { Badge, Card, buttonClass } from '@/components/ui';
 
 import { CourseBlock, inline } from '../blocks';
 import type { UnitPage } from '../course-types';
+import { ReadingBar, Syllabus } from './syllabus';
 
 /**
  * One course unit, laid out like a course page: the syllabus of this unit on
@@ -30,8 +37,25 @@ import type { UnitPage } from '../course-types';
  */
 export function UnitView({ page }: { page: UnitPage }) {
   const { unit, module, previous, next } = page;
-  const [active, setActive] = useState(unit.sections[0]?.id);
+  const [active, setActive] = useState(0);
+  // Sections read through, as a high-water mark: everything above the one on
+  // screen counts as read, and reaching the end of the unit counts them all.
+  const [read, setRead] = useState(0);
+  const [scrolled, setScrolled] = useState(0);
   const [finished, setFinishedState] = useState(false);
+  const articleRef = useRef<HTMLElement>(null);
+  const endRef = useRef<HTMLElement>(null);
+  const total = unit.sections.length;
+
+  useEffect(() => setRead(sectionsRead(unit.id)), [unit.id]);
+
+  const reach = (count: number) => {
+    setRead((current) => {
+      const next = Math.max(current, Math.min(count, total));
+      if (next > current) markSectionsRead(unit.id, next);
+      return next;
+    });
+  };
 
   useEffect(() => {
     const read = () => setFinishedState(finishedUnits().has(unit.id));
@@ -40,12 +64,17 @@ export function UnitView({ page }: { page: UnitPage }) {
     return () => window.removeEventListener(COURSE_PROGRESS_EVENT, read);
   }, [unit.id]);
 
-  // Highlight the section being read in the syllabus.
+  // The section on screen, and everything above it counted as read.
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
         const visible = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-        if (visible[0]) setActive(visible[0].target.id);
+        if (!visible[0]) return;
+        const index = unit.sections.findIndex((s) => s.id === visible[0].target.id);
+        if (index >= 0) {
+          setActive(index);
+          reach(index);
+        }
       },
       { rootMargin: '-15% 0px -70% 0px' },
     );
@@ -53,14 +82,52 @@ export function UnitView({ page }: { page: UnitPage }) {
       const element = document.getElementById(section.id);
       if (element) observer.observe(element);
     });
-    return () => observer.disconnect();
-  }, [unit.sections]);
+    // The end of the unit in view: the last section has been read too.
+    const end = new IntersectionObserver((entries) => {
+      // The last section can rarely scroll high enough to become the one on
+      // screen, so reaching the end makes it current.
+      if (entries.some((e) => e.isIntersecting)) {
+        reach(total);
+        setActive(total - 1);
+      }
+    });
+    if (endRef.current) end.observe(endRef.current);
+    return () => {
+      observer.disconnect();
+      end.disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unit.sections, unit.id]);
+
+  // How far through the article the window is, for the bar along the top.
+  useEffect(() => {
+    let frame = 0;
+    const measure = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const article = articleRef.current;
+        if (!article) return;
+        const box = article.getBoundingClientRect();
+        const span = box.height - window.innerHeight;
+        setScrolled(span <= 0 ? 100 : Math.min(100, Math.max(0, (-box.top / span) * 100)));
+      });
+    };
+    measure();
+    window.addEventListener('scroll', measure, { passive: true });
+    window.addEventListener('resize', measure);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', measure);
+      window.removeEventListener('resize', measure);
+    };
+  }, []);
 
   const checks = unit.sections.reduce((n, s) => n + s.blocks.filter((b) => b.type === 'check').length, 0);
 
   return (
-    <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[15rem_minmax(0,1fr)]">
-      <aside className="lg:sticky lg:top-6 lg:self-start">
+    <div className="mx-auto grid gap-10 xl:grid-cols-[19rem_minmax(0,1fr)]">
+      <ReadingBar percent={scrolled} />
+      <aside className="space-y-5 xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)] xl:self-start xl:overflow-y-auto">
         <Link
           href="/study/course"
           className="cg-focusable inline-flex items-center gap-1.5 rounded text-sm font-semibold text-muted transition hover:text-ink"
@@ -68,29 +135,18 @@ export function UnitView({ page }: { page: UnitPage }) {
           <ArrowLeft size={15} strokeWidth={2.4} aria-hidden />
           Java foundations
         </Link>
-        <nav aria-label="In this unit" className="mt-5 hidden lg:block">
-          <p className="text-xs font-semibold uppercase tracking-widest text-muted">In this unit</p>
-          <ol className="mt-3 space-y-1 border-l border-line">
-            {unit.sections.map((section, i) => (
-              <li key={section.id}>
-                <a
-                  href={`#${section.id}`}
-                  className={`-ml-px flex gap-2 border-l-2 py-1.5 pl-3 text-sm transition ${
-                    active === section.id
-                      ? 'border-hue-study font-semibold text-ink'
-                      : 'border-transparent text-muted hover:text-ink'
-                  }`}
-                >
-                  <span className="tabular-nums text-muted">{i + 1}</span>
-                  {section.title}
-                </a>
-              </li>
-            ))}
-          </ol>
-        </nav>
+        <div className="hidden xl:block">
+          <Syllabus
+            sections={unit.sections}
+            active={active}
+            read={read}
+            finished={finished}
+            onFinish={() => setFinished(unit.id, true)}
+          />
+        </div>
       </aside>
 
-      <article className="min-w-0 space-y-8">
+      <article ref={articleRef} className="min-w-0 space-y-10 text-[1.0625rem] leading-relaxed lg:text-lg">
         <header className="relative overflow-hidden rounded-cg-xl border border-line bg-card p-6 shadow-cg-sm sm:p-8">
           <div aria-hidden className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-hue-study/20 blur-3xl" />
           <div className="relative">
@@ -106,9 +162,9 @@ export function UnitView({ page }: { page: UnitPage }) {
                 </Badge>
               )}
             </div>
-            <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-ink sm:text-[2.2rem] sm:leading-tight">{unit.title}</h1>
-            <p className="mt-3 max-w-2xl text-lg text-body">{unit.summary}</p>
-            <ul className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted">
+            <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-ink sm:text-[2.6rem] sm:leading-tight">{unit.title}</h1>
+            <p className="mt-3 max-w-3xl text-lg text-body lg:text-xl">{unit.summary}</p>
+            <ul className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted lg:text-base">
               <li className="flex items-center gap-1.5"><Clock3 size={15} aria-hidden /> about {unit.minutes} min</li>
               <li className="flex items-center gap-1.5"><GraduationCap size={15} aria-hidden /> {unit.sections.length} sections</li>
               <li className="flex items-center gap-1.5"><ListChecks size={15} aria-hidden /> {checks} practice questions</li>
@@ -123,7 +179,7 @@ export function UnitView({ page }: { page: UnitPage }) {
           </h2>
           <ul className="mt-3 grid gap-2 sm:grid-cols-2">
             {unit.objectives.map((objective) => (
-              <li key={objective} className="flex gap-2 text-sm leading-relaxed text-body">
+              <li key={objective} className="flex gap-2 text-base leading-relaxed text-body">
                 <CheckCircle2 size={16} strokeWidth={2.2} aria-hidden className="mt-0.5 shrink-0 text-ok" />
                 <span>{inline(objective)}</span>
               </li>
@@ -132,9 +188,13 @@ export function UnitView({ page }: { page: UnitPage }) {
         </Card>
 
         {unit.sections.map((section, i) => (
-          <section key={section.id} id={section.id} className="scroll-mt-6 space-y-5">
-            <h2 className="flex items-baseline gap-3 text-2xl font-bold tracking-tight text-ink">
-              <span className="grid h-8 w-8 shrink-0 place-items-center self-center rounded-cg bg-hue-study/10 text-sm font-bold text-hue-study">
+          <section key={section.id} id={section.id} className="scroll-mt-6 space-y-6">
+            <h2 className="flex items-baseline gap-3 text-2xl font-bold tracking-tight text-ink lg:text-[1.9rem]">
+              <span
+                className={`grid h-9 w-9 shrink-0 place-items-center self-center rounded-cg text-sm font-bold transition-colors duration-500 ${
+                  i < read ? 'bg-ok/15 text-ok' : 'bg-hue-study/10 text-hue-study'
+                }`}
+              >
                 {i + 1}
               </span>
               {section.title}
@@ -145,7 +205,7 @@ export function UnitView({ page }: { page: UnitPage }) {
           </section>
         ))}
 
-        <footer className="space-y-5 border-t border-line pt-8">
+        <footer ref={endRef} className="space-y-5 border-t border-line pt-8">
           <Card className="flex flex-wrap items-center gap-4 p-5">
             <button
               type="button"

@@ -124,7 +124,16 @@ function withRoleClasses(chart: string): string {
  * "Start: i = 0"). The course diagrams, which are written to be read whole,
  * use SVG labels; the lesson diagrams keep the default.
  */
-export default function MermaidDiagram({ chart, svgLabels = false }: { chart: string; svgLabels?: boolean }) {
+export default function MermaidDiagram({
+  chart,
+  svgLabels = false,
+  fontSize = 15,
+}: {
+  chart: string;
+  svgLabels?: boolean;
+  /** Label size in px. The course reads at a larger size than a lesson. */
+  fontSize?: number;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
   // Bumped when the student switches theme, so the colours are read again.
@@ -162,7 +171,7 @@ export default function MermaidDiagram({ chart, svgLabels = false }: { chart: st
             lineColor: accent,
             edgeLabelBackground: card,
             tertiaryColor: readHex('--cg-rgb-card-alt', '#f8fafd'),
-            fontSize: '15px',
+            fontSize: `${fontSize}px`,
             fontFamily:
               getComputedStyle(document.documentElement).getPropertyValue('--cg-font').trim() ||
               'system-ui, sans-serif',
@@ -203,7 +212,7 @@ export default function MermaidDiagram({ chart, svgLabels = false }: { chart: st
     return () => {
       live = false;
     };
-  }, [chart, id, themeRevision, svgLabels]);
+  }, [chart, id, themeRevision, svgLabels, fontSize]);
 
   if (failed) {
     return (
